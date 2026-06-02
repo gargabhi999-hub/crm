@@ -70,9 +70,9 @@ const CreateLeadModal = ({ onClose, onSave, submitting }) => {
   };
 
   return (
-    <div className="detail-modal-overlay animate-fade-in">
-      <div className="detail-modal-content animate-scale-up" style={{ maxWidth: '520px' }}>
-        <div className="detail-modal-header">
+    <div className="create-lead-overlay">
+      <div className="create-lead-content">
+        <div className="create-lead-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <div className="status-icon-wrapper" style={{ background: 'var(--primary-glow)', color: 'var(--primary)' }}>
               <Plus size={24} />
@@ -82,12 +82,12 @@ const CreateLeadModal = ({ onClose, onSave, submitting }) => {
               <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)' }}>Manually insert a successful conversion or callback</p>
             </div>
           </div>
-          <button onClick={onClose} className="detail-modal-close">
+          <button onClick={onClose} className="create-lead-close">
             <X size={20} />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="detail-modal-body" style={{ maxHeight: '75vh', overflowY: 'auto' }}>
+        <form onSubmit={handleSubmit} className="create-lead-body">
           
           {/* Main Fields Grid */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
@@ -265,7 +265,7 @@ const CreateLeadModal = ({ onClose, onSave, submitting }) => {
             />
           </div>
 
-          <div className="detail-modal-footer">
+          <div className="create-lead-footer">
             <button type="button" onClick={onClose} className="btn btn-outline" disabled={submitting}>Cancel</button>
             <button type="submit" className="btn btn-primary" disabled={submitting}>
               {submitting ? <RotateCw className="animate-spin" size={18} /> : 'Create Lead'}
@@ -273,6 +273,84 @@ const CreateLeadModal = ({ onClose, onSave, submitting }) => {
           </div>
         </form>
       </div>
+
+      <style>{`
+        .create-lead-overlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(15, 23, 42, 0.75);
+          backdrop-filter: blur(10px);
+          display: flex;
+          align-items: flex-start;
+          justify-content: center;
+          z-index: 99999;
+          padding: 24px 16px;
+          overflow-y: auto;
+          animation: createLeadFadeIn 0.25s ease-out;
+        }
+        
+        .create-lead-content {
+          background: var(--bg-surface);
+          width: 100%;
+          max-width: 520px;
+          border-radius: 24px;
+          box-shadow: 0 40px 100px -12px rgba(0, 0, 0, 0.6);
+          border: 1px solid var(--border);
+          margin-top: 16px; /* Elegant top-center gap */
+          animation: createLeadSlideDown 0.35s cubic-bezier(0.34, 1.56, 0.64, 1); /* Bounce slide down */
+          overflow: hidden;
+        }
+
+        .create-lead-header {
+          padding: 20px 24px;
+          border-bottom: 1px solid var(--border);
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          background: var(--bg-surface-2);
+        }
+
+        .create-lead-close {
+          background: none;
+          border: none;
+          color: var(--text-muted);
+          cursor: pointer;
+          padding: 8px;
+          border-radius: 10px;
+          transition: all 0.2s;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        
+        .create-lead-close:hover {
+          background: rgba(255, 255, 255, 0.05);
+          color: var(--text-primary);
+        }
+
+        .create-lead-body {
+          padding: 24px;
+        }
+
+        .create-lead-footer {
+          margin-top: 24px;
+          display: flex;
+          gap: 12px;
+          justify-content: flex-end;
+          border-top: 1px solid var(--border);
+          padding-top: 20px;
+        }
+
+        @keyframes createLeadFadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+
+        @keyframes createLeadSlideDown {
+          from { transform: translateY(-40px); opacity: 0; }
+          to { transform: translateY(0); opacity: 1; }
+        }
+      `}</style>
     </div>
   );
 };

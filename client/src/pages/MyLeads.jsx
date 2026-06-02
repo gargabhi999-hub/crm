@@ -438,9 +438,9 @@ const MyLeads = () => {
           <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: 4 }}>Track and manage your successful conversions</p>
         </div>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-          {['agent', 'tl', 'admin', 'superadmin'].includes(user?.role) && (
+          {['agent', 'tl'].includes(user?.role) && (
             <button className="btn btn-primary" onClick={() => setShowCreateModal(true)} style={{ fontSize: '0.75rem', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: 6 }}>
-              <Plus size={14} /> + Create Lead
+              <Plus size={14} /> Create Lead
             </button>
           )}
           {user?.role === 'superadmin' && (
