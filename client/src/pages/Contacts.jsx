@@ -383,13 +383,18 @@ const Contacts = ({ filterType }) => {
                 </div>
 
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--border)' }}>
-                  <span style={{ fontSize: '0.75rem' }}>
-                    Agent: <strong>{contact.agentName}</strong>
+                  <span style={{ fontSize: '0.75rem', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '4px' }}>
+                    <span>Agent: <strong>{contact.agentName}</strong></span>
                     {user?.role === 'superadmin' && contact.tlName && contact.tlName !== 'N/A' && (
-                      <> | TL: <strong>{contact.tlName}</strong></>
+                      <> <span>|</span> <span>TL: <strong>{contact.tlName}</strong></span></>
                     )}
                     {user?.role === 'superadmin' && contact.adminName && contact.adminName !== 'N/A' && (
-                      <> | Admin: <strong>{contact.adminName}</strong></>
+                      <> <span>|</span> <span>Admin: <strong>{contact.adminName}</strong></span></>
+                    )}
+                    {fields.manuallyCreated && (
+                      <span style={{ background: 'rgba(245, 158, 11, 0.12)', color: '#f59e0b', border: '1px solid rgba(245, 158, 11, 0.25)', padding: '1px 6px', borderRadius: '4px', fontWeight: 800, fontSize: '0.6rem', marginLeft: 4 }}>
+                        ✍️ Manually added by {fields.createdByName || 'Staff'}
+                      </span>
                     )}
                   </span>
                   <div style={{ display: 'flex', gap: 8 }}>

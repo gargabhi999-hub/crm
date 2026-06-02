@@ -835,4 +835,186 @@ router.post('/extract-transaction', verify, authorize(['superadmin', 'admin', 't
   }
 });
 
+router.post('/create', verify, authorize(['superadmin', 'admin', 'tl', 'agent']), async (req, res) => {
+  try {
+    const { name, phone, email, leadAmount, status, remarks, transactionId, createdAt } = req.body;
+
+    if (!name || !phone) {
+      return res.status(400).json({ error: 'Name and Phone are required' });
+    }
+
+    const creatorId = req.user._id || req.user.id;
+    const role = req.user.role;
+    
+    // Determine the adminId (company)
+    let adminId = null;
+    if (role === 'agent' || role === 'tl') {
+      adminId = req.user.adminId;
+    } else if (role === 'admin') {
+      adminId = creatorId;
+    }
+    
+    // Determine assignedTo and agentName
+    let assignedTo = creatorId;
+    let agentName = req.user.name || req.user.username;
+    
+    // If a TL or Admin wants to assign it to a specific agent:
+    if ((role === 'tl' || role === 'admin' || role === 'superadmin') && req.body.assignedTo) {
+      assignedTo = req.body.assignedTo;
+      const assignedUser = await prisma.user.findUnique({ where: { id: assignedTo } });
+      if (assignedUser) {
+        agentName = assignedUser.name || assignedUser.username;
+        if (!adminId && assignedUser.adminId) {
+          adminId = assignedUser.adminId;
+        }
+      }
+    }
+
+    const leadDate = createdAt ? new Date(createdAt) : new Date();
+
+    // Create the Contact
+    const contactData = {
+      fields: {
+        Name: name,
+        Phone: phone,
+        Email: email || '',
+        manuallyCreated: true,
+        createdByName: req.user.name || req.user.username
+      },
+      assignedTo,
+      agentName,
+      adminId,
+      disposition: 'Lead',
+      status: status || 'Pending',
+      leadAmount: parseFloat(leadAmount) || 0,
+      transactionId: transactionId || null,
+      remarks: remarks || '',
+      isDeleted: false,
+      createdAt: leadDate,
+      queueOrder: 999999
+    };
+
+    if (status === 'Converted') {
+      contactData.conversionDate = leadDate;
+    } else if (status === 'Call Back' || status === 'CallBack') {
+      contactData.callBackDt = req.body.callBackDt ? new Date(req.body.callBackDt) : leadDate;
+    }
+
+    const contact = await prisma.contact.create({ data: contactData });
+
+    // Create the Lead
+    const newLead = await prisma.lead.create({
+      data: {
+        contactId: contact.id,
+        fields: contact.fields,
+        assignedTo,
+        agentName,
+        adminId,
+        leadAmount: parseFloat(leadAmount) || 0,
+        status: status || 'Pending',
+        remarks: remarks || '',
+        transactionId: transactionId || null,
+        createdAt: leadDate
+      }
+    });
+
+    // If status is Call Back, create a Callback record
+    if (status === 'Call Back' || status === 'CallBack') {
+      const callBackDt = req.body.callBackDt ? new Date(req.body.callBackDt) : leadDate;
+      await prisma.callback.create({
+        data: {
+          contactId: contact.id,
+          fields: contact.fields,
+          assignedTo,
+          agentName,
+          callBackDt,
+          remarks: remarks || '',
+          adminId,
+          source: 'lead'
+        }
+      });
+      
+      const { consolidateCallbacks } = require('../shared/callbackUtils');
+      if (phone) await consolidateCallbacks(phone);
+    }
+
+    // Trigger Conversion Email if Converted
+    if (status === 'Converted') {
+      triggerConversionEmail(contact.id, req.body.receiptImage).then(emailResult => {
+          broadcast('email_status', {
+              agentId: creatorId,
+              success: emailResult.success,
+              reason: emailResult.reason
+          });
+      }).catch(err => {
+          broadcast('email_status', {
+              agentId: creatorId,
+              success: false,
+              reason: err.message
+          });
+      });
+    }
+
+    broadcast('dashboard_update');
+    broadcast('contacts_updated');
+
+    // DUPLICATE CHECK:
+    // "check for the duplicate lead in the database for the respective company for the same contact on the same date and time and with the same transaction id"
+    const normalize = (ph) => {
+      if (!ph) return 'N/A';
+      const clean = String(ph).replace(/\D/g, '');
+      return clean.length >= 10 ? clean.slice(-10) : clean || 'N/A';
+    };
+
+    const targetPhoneNorm = normalize(phone);
+    
+    // Find potential duplicates under the same company (adminId)
+    // and with the same transactionId.
+    const potentialDuplicates = await prisma.lead.findMany({
+      where: {
+        id: { not: newLead.id }, // Exclude the new lead
+        adminId: adminId || undefined,
+        transactionId: transactionId ? transactionId : undefined
+      }
+    });
+
+    const duplicates = potentialDuplicates.filter(l => {
+      const fields = l.fields || {};
+      const lPhone = fields.Phone || fields.phone || fields.Mobile;
+      if (normalize(lPhone) !== targetPhoneNorm) return false;
+
+      // Same date and time check (minute-precision)
+      const d1 = new Date(l.createdAt);
+      const d2 = new Date(newLead.createdAt);
+
+      return (
+        d1.getFullYear() === d2.getFullYear() &&
+        d1.getMonth() === d2.getMonth() &&
+        d1.getDate() === d2.getDate() &&
+        d1.getHours() === d2.getHours() &&
+        d1.getMinutes() === d2.getMinutes()
+      );
+    });
+
+    const isDuplicate = duplicates.length > 0;
+
+    res.json({
+      success: true,
+      lead: newLead,
+      duplicateFound: isDuplicate,
+      duplicates: duplicates.map(d => ({
+        id: d.id,
+        agentName: d.agentName,
+        createdAt: d.createdAt,
+        leadAmount: d.leadAmount,
+        status: d.status
+      }))
+    });
+
+  } catch (err) {
+    console.error('Create lead failed:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 module.exports = router;

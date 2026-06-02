@@ -2,10 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useSocket } from '../contexts/SocketContext';
 import api from '../utils/api';
-import { Star, TrendingUp, Users, Calendar, Search, PhoneCall, Award, Target, Trash2, X, CheckSquare, Square, RotateCw, MessageCircle, Image as ImageIcon, Loader2 } from 'lucide-react';
+import { Star, TrendingUp, Users, Calendar, Search, PhoneCall, Award, Target, Trash2, X, CheckSquare, Square, RotateCw, MessageCircle, Image as ImageIcon, Loader2, Plus, AlertTriangle } from 'lucide-react';
 import LeadStatusModal from '../components/LeadStatusModal';
 import CallActionModal from '../components/CallActionModal';
 import WhatsAppIcon from '../components/WhatsAppIcon';
+import CreateLeadModal from '../components/CreateLeadModal';
 import './SuperAdminDashboard.css';
 
 const StatCard = ({ title, value, subtext, icon: Icon, accent, delay = 0, glow = false }) => (
@@ -34,6 +35,9 @@ const MyLeads = () => {
   const [statusFilter, setStatusFilter] = useState('all');
   const [stats, setStats] = useState({ totalLeads: 0, totalAmount: 0 });
   const [selectedIds, setSelectedIds] = useState([]);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [createSubmitting, setCreateSubmitting] = useState(false);
+  const [duplicateLead, setDuplicateLead] = useState(null);
   
   // Pagination
   const [page, setPage] = useState(1);
@@ -339,6 +343,30 @@ const MyLeads = () => {
     }
   };
 
+  const handleCreateLeadSave = async (formData) => {
+    setCreateSubmitting(true);
+    try {
+      const res = await api.post('/leads/create', formData);
+      if (res.data.success) {
+        addToast('Lead created successfully!', 'success');
+        
+        if (res.data.duplicateFound) {
+          setDuplicateLead({
+            newLead: res.data.lead,
+            duplicates: res.data.duplicates
+          });
+        }
+        
+        setShowCreateModal(false);
+        fetchData();
+      }
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to create lead');
+    } finally {
+      setCreateSubmitting(false);
+    }
+  };
+
   const toggleSelect = (id) => {
     setSelectedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
   };
@@ -410,6 +438,11 @@ const MyLeads = () => {
           <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: 4 }}>Track and manage your successful conversions</p>
         </div>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          {['agent', 'tl', 'admin', 'superadmin'].includes(user?.role) && (
+            <button className="btn btn-primary" onClick={() => setShowCreateModal(true)} style={{ fontSize: '0.75rem', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Plus size={14} /> + Create Lead
+            </button>
+          )}
           {user?.role === 'superadmin' && (
             <button className="btn btn-danger" onClick={handleWipeLeads} style={{ fontSize: '0.75rem', padding: '6px 12px' }}>
               <Trash2 size={14} /> Wipe All Leads
@@ -529,13 +562,18 @@ const MyLeads = () => {
                         </div>
 
                         {lead.agentName && (
-                          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 4, fontWeight: 700 }}>
-                            Agent: <span style={{ color: 'var(--primary)' }}>{lead.agentName}</span>
+                          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 4, fontWeight: 700, display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '4px' }}>
+                            <span>Agent: <span style={{ color: 'var(--primary)' }}>{lead.agentName}</span></span>
                             {user?.role === 'superadmin' && lead.tlName && lead.tlName !== 'N/A' && (
-                              <> <span style={{ margin: '0 4px', opacity: 0.5 }}>|</span> TL: <span style={{ color: 'var(--violet)' }}>{lead.tlName}</span></>
+                              <> <span style={{ opacity: 0.5 }}>|</span> <span>TL: <span style={{ color: 'var(--violet)' }}>{lead.tlName}</span></span></>
                             )}
                             {user?.role === 'superadmin' && lead.adminName && lead.adminName !== 'N/A' && (
-                              <> <span style={{ margin: '0 4px', opacity: 0.5 }}>|</span> Admin: <span style={{ color: 'var(--success)' }}>{lead.adminName}</span></>
+                              <> <span style={{ opacity: 0.5 }}>|</span> <span>Admin: <span style={{ color: 'var(--success)' }}>{lead.adminName}</span></span></>
+                            )}
+                            {fields.manuallyCreated && (
+                              <span style={{ background: 'rgba(245, 158, 11, 0.12)', color: '#f59e0b', border: '1px solid rgba(245, 158, 11, 0.25)', padding: '1px 6px', borderRadius: '4px', fontWeight: 800, fontSize: '0.6rem', marginLeft: 4 }}>
+                                ✍️ Manually added by {fields.createdByName || 'Staff'}
+                              </span>
                             )}
                           </div>
                         )}
@@ -844,7 +882,16 @@ const MyLeads = () => {
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
                             <div>
                               <div style={{ fontSize: '1.1rem', fontWeight: 900, color: 'var(--text-primary)' }}>₹{(h.leadAmount || 0).toLocaleString()}</div>
-                              {h.agentName && <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>Handled by: {h.agentName}</div>}
+                              {h.agentName && (
+                                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2, display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '4px' }}>
+                                  <span>Handled by: {h.agentName}</span>
+                                  {h.fields?.manuallyCreated && (
+                                    <span style={{ background: 'rgba(245, 158, 11, 0.12)', color: '#f59e0b', border: '1px solid rgba(245, 158, 11, 0.25)', padding: '0 4px', borderRadius: '3px', fontWeight: 800, fontSize: '0.55rem', marginLeft: 4 }}>
+                                      ✍️ Manually added by {h.fields.createdByName || 'Staff'}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
 
                               {/* Specific Details - Conditional based on current record status */}
                               {h.status === 'Call Back' && h.callBackDt && (
@@ -880,6 +927,64 @@ const MyLeads = () => {
 
             <div className="status-modal-footer">
               <button onClick={() => setHistoryContact(null)} className="btn btn-primary" style={{ width: '100%' }}>Close History</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showCreateModal && (
+        <CreateLeadModal
+          onClose={() => setShowCreateModal(false)}
+          onSave={handleCreateLeadSave}
+          submitting={createSubmitting}
+        />
+      )}
+
+      {/* Duplicate Warning Modal */}
+      {duplicateLead && (
+        <div className="status-modal-overlay animate-fade-in" style={{ zIndex: 999999 }}>
+          <div className="status-modal-content animate-scale-up" style={{ maxWidth: 500, border: '2px solid var(--danger)' }}>
+            <div className="status-modal-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', padding: '24px 24px 16px', borderBottom: '1px solid var(--border)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div className="status-icon-wrapper" style={{ background: '#ef444415', color: '#ef4444', width: 56, height: 56, minWidth: 56, borderRadius: 14 }}>
+                  <AlertTriangle size={32} />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 900, color: '#ef4444' }}>Duplicate Lead Detected!</h3>
+                  <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)' }}>Potential duplicate record found in the database</p>
+                </div>
+              </div>
+              <button onClick={() => setDuplicateLead(null)} className="status-modal-close">
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="status-modal-body" style={{ padding: 24 }}>
+              <div className="glass-panel" style={{ padding: '16px', background: 'rgba(239, 68, 68, 0.05)', border: '1px solid rgba(239, 68, 68, 0.15)', borderRadius: 16, marginBottom: 16 }}>
+                <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                  A lead has been successfully created. However, our system detected that <strong>{duplicateLead.duplicates.length} duplicate lead(s)</strong> already exist for the <strong>same contact</strong>, on the <strong>same date and time</strong>, with the <strong>same transaction ID</strong> under your company.
+                </p>
+              </div>
+
+              <h4 style={{ fontSize: '0.9rem', fontWeight: 700, marginBottom: 12, color: 'var(--text-primary)' }}>Pre-existing Duplicate Lead(s):</h4>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxHeight: '200px', overflowY: 'auto' }}>
+                {duplicateLead.duplicates.map((d, index) => (
+                  <div key={d.id || index} style={{ padding: '12px 16px', background: 'var(--bg-surface-2)', borderRadius: 12, border: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <div style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--text-primary)' }}>Handled by: {d.agentName}</div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 4 }}>Created at: {new Date(d.createdAt).toLocaleString()}</div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: '0.95rem', fontWeight: 900, color: 'var(--success)' }}>₹{d.leadAmount.toLocaleString()}</div>
+                      <span className={`badge ${d.status === 'Converted' ? 'badge-success' : 'badge-primary'}`} style={{ fontSize: '0.65rem', marginTop: 4, display: 'inline-block' }}>{d.status}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="status-modal-footer" style={{ padding: '0 24px 24px' }}>
+              <button onClick={() => setDuplicateLead(null)} className="btn btn-danger" style={{ width: '100%', padding: '12px 0', borderRadius: 12 }}>I Acknowledge</button>
             </div>
           </div>
         </div>
