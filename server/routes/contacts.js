@@ -893,33 +893,53 @@ router.get('/customer-360/:phone', verify, authorize(['superadmin', 'agent', 'tl
       });
     }
 
+    const likePattern = `%${targetNorm}`;
+
     const [rawContacts, rawLeads, rawCallbacks, rawAppointments, allUsers] = await Promise.all([
-      prisma.contact.findMany({
-        select: {
-          id: true, fields: true, remarks: true, status: true, disposition: true,
-          leadAmount: true, transactionId: true, createdAt: true, disposedAt: true,
-          lastModified: true, assignedTo: true, agentName: true, conversionDate: true
-        }
-      }),
-      prisma.lead.findMany({
-        select: {
-          id: true, contactId: true, fields: true, remarks: true, status: true,
-          leadAmount: true, transactionId: true, createdAt: true, lastModified: true,
-          assignedTo: true, agentName: true
-        }
-      }),
-      prisma.callback.findMany({
-        select: {
-          id: true, contactId: true, fields: true, remarks: true, callBackDt: true,
-          createdAt: true, assignedTo: true, agentName: true
-        }
-      }),
-      prisma.appointment.findMany({
-        select: {
-          id: true, contactId: true, fields: true, remarks: true, appointmentDt: true,
-          createdAt: true, assignedTo: true, agentName: true
-        }
-      }),
+      prisma.$queryRawUnsafe(`
+        SELECT _id as id, fields, remarks, status, disposition, 
+               lead_amount as "leadAmount", transaction_id as "transactionId", 
+               created_at as "createdAt", disposed_at as "disposedAt", 
+               last_modified as "lastModified", assigned_to as "assignedTo", 
+               agent_name as "agentName", conversion_date as "conversionDate"
+        FROM contacts
+        WHERE is_deleted = false AND (
+          regexp_replace(fields->>'Phone', '\\D', '', 'g') LIKE $1 OR
+          regexp_replace(fields->>'phone', '\\D', '', 'g') LIKE $1 OR
+          regexp_replace(fields->>'Mobile', '\\D', '', 'g') LIKE $1
+        )
+      `, likePattern),
+      prisma.$queryRawUnsafe(`
+        SELECT _id as id, contact_id as "contactId", fields, remarks, status, 
+               lead_amount as "leadAmount", transaction_id as "transactionId", 
+               created_at as "createdAt", last_modified as "lastModified", 
+               assigned_to as "assignedTo", agent_name as "agentName"
+        FROM leads
+        WHERE 
+          regexp_replace(fields->>'Phone', '\\D', '', 'g') LIKE $1 OR
+          regexp_replace(fields->>'phone', '\\D', '', 'g') LIKE $1 OR
+          regexp_replace(fields->>'Mobile', '\\D', '', 'g') LIKE $1
+      `, likePattern),
+      prisma.$queryRawUnsafe(`
+        SELECT _id as id, contact_id as "contactId", fields, remarks, 
+               call_back_dt as "callBackDt", created_at as "createdAt", 
+               assigned_to as "assignedTo", agent_name as "agentName"
+        FROM callbacks
+        WHERE 
+          regexp_replace(fields->>'Phone', '\\D', '', 'g') LIKE $1 OR
+          regexp_replace(fields->>'phone', '\\D', '', 'g') LIKE $1 OR
+          regexp_replace(fields->>'Mobile', '\\D', '', 'g') LIKE $1
+      `, likePattern),
+      prisma.$queryRawUnsafe(`
+        SELECT _id as id, contact_id as "contactId", fields, remarks, 
+               appointment_dt as "appointmentDt", created_at as "createdAt", 
+               assigned_to as "assignedTo", agent_name as "agentName"
+        FROM appointments
+        WHERE 
+          regexp_replace(fields->>'Phone', '\\D', '', 'g') LIKE $1 OR
+          regexp_replace(fields->>'phone', '\\D', '', 'g') LIKE $1 OR
+          regexp_replace(fields->>'Mobile', '\\D', '', 'g') LIKE $1
+      `, likePattern),
       prisma.user.findMany({
         select: { id: true, name: true, username: true }
       })

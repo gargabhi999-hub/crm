@@ -75,16 +75,19 @@ router.get('/download', verify, authorize(['superadmin', 'admin', 'tl', 'agent']
       ]
     });
 
+    const assignedUserIds = [...new Set(contacts.map(c => c.assignedTo).filter(Boolean))];
+    const users = await prisma.user.findMany({
+      where: { id: { in: assignedUserIds } },
+      select: { id: true, name: true }
+    });
+    const userMap = {};
+    users.forEach(u => {
+      userMap[u.id] = u.name || 'Unknown';
+    });
+
     const fieldCols = [...new Set(contacts.flatMap(c => Object.keys(c.fields || {})))];
-    const userCache = {};
-    const rows = await Promise.all(contacts.map(async (c, index) => {
-      let agentName = 'Unknown';
-      if (c.assignedTo) {
-        if (!userCache[c.assignedTo]) {
-          userCache[c.assignedTo] = await prisma.user.findUnique({ where: { id: c.assignedTo } });
-        }
-        agentName = userCache[c.assignedTo]?.name || 'Unknown';
-      }
+    const rows = contacts.map((c, index) => {
+      const agentName = c.assignedTo ? (userMap[c.assignedTo] || 'Unknown') : 'Unknown';
 
       if (reportType === 'converted') {
         const leadDate = c.createdAt ? new Date(c.createdAt) : new Date();
@@ -149,7 +152,7 @@ router.get('/download', verify, authorize(['superadmin', 'admin', 'tl', 'agent']
       row['Appointment Date & Time'] = c.appointmentDt ? new Date(c.appointmentDt).toLocaleString('en-IN') : '';
       row['Last Modified'] = c.lastModified ? new Date(c.lastModified).toLocaleString('en-IN') : '';
       return row;
-    }));
+    });
 
     if (format === 'xlsx') {
       const ws = XLSX.utils.json_to_sheet(rows);

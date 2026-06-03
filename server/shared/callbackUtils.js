@@ -12,9 +12,17 @@ async function consolidateCallbacks(phoneNum) {
   if (!normalized) return;
 
   try {
-    const allCallbacks = await prisma.callback.findMany({
-      orderBy: { createdAt: 'desc' }
-    });
+    const allCallbacks = await prisma.$queryRawUnsafe(`
+      SELECT _id as id, contact_id as "contactId", fields, remarks, 
+             call_back_dt as "callBackDt", created_at as "createdAt", 
+             assigned_to as "assignedTo", agent_name as "agentName"
+      FROM callbacks
+      WHERE 
+        regexp_replace(fields->>'Phone', '\\D', '', 'g') LIKE $1 OR
+        regexp_replace(fields->>'phone', '\\D', '', 'g') LIKE $1 OR
+        regexp_replace(fields->>'Mobile', '\\D', '', 'g') LIKE $1
+      ORDER BY created_at DESC
+    `, `%${normalized}`);
 
     const matchingCallbacks = allCallbacks.filter(cb => {
       const f = cb.fields || {};
@@ -67,7 +75,16 @@ async function cleanupAllCallbacks(phoneNum) {
   if (!normalized) return;
 
   try {
-    const allCallbacks = await prisma.callback.findMany();
+    const allCallbacks = await prisma.$queryRawUnsafe(`
+      SELECT _id as id, contact_id as "contactId", fields, remarks, 
+             call_back_dt as "callBackDt", created_at as "createdAt", 
+             assigned_to as "assignedTo", agent_name as "agentName"
+      FROM callbacks
+      WHERE 
+        regexp_replace(fields->>'Phone', '\\D', '', 'g') LIKE $1 OR
+        regexp_replace(fields->>'phone', '\\D', '', 'g') LIKE $1 OR
+        regexp_replace(fields->>'Mobile', '\\D', '', 'g') LIKE $1
+    `, `%${normalized}`);
 
     const matchingCallbacks = allCallbacks.filter(cb => {
       const f = cb.fields || {};
