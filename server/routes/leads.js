@@ -4,6 +4,7 @@ const { authorize, verify } = require('../shared/authMiddleware');
 const { consolidateCallbacks } = require('../shared/callbackUtils');
 const { broadcast } = require('../shared/notificationClient');
 const { triggerConversionEmail } = require('../shared/triggerConversionEmail');
+const { resolveUserNamesForRecords } = require('../shared/userResolver');
 const axios = require('axios');
 
 router.get('/my-leads', verify, authorize(['superadmin', 'agent', 'tl', 'admin']), async (req, res) => {
@@ -24,10 +25,9 @@ router.get('/my-leads', verify, authorize(['superadmin', 'agent', 'tl', 'admin']
 
     if (status && status !== 'all') whereQuery.status = status;
 
-    const [leads, contactLeads, allUsers] = await Promise.all([
+    const [leads, contactLeads] = await Promise.all([
       prisma.lead.findMany({ where: whereQuery }),
-      prisma.contact.findMany({ where: { ...whereQuery, disposition: 'Lead', isDeleted: false } }),
-      prisma.user.findMany({})
+      prisma.contact.findMany({ where: { ...whereQuery, disposition: 'Lead', isDeleted: false } })
     ]);
 
     const leadContactIds = leads.map(l => l.contactId).filter(Boolean);
@@ -41,7 +41,7 @@ router.get('/my-leads', verify, authorize(['superadmin', 'agent', 'tl', 'admin']
       return acc;
     }, {});
 
-    const userMap = allUsers.reduce((acc, u) => { acc[u.id] = u; return acc; }, {});
+    const userMap = await resolveUserNamesForRecords([...leads, ...contactLeads]);
     const leadContactIdsSet = new Set(leads.map(l => l.contactId));
     const uniqueContactLeads = contactLeads.filter(c => !leadContactIdsSet.has(c.id));
 
@@ -219,13 +219,16 @@ router.get('/appointments', verify, authorize(['superadmin', 'agent', 'tl', 'adm
       contactsWhereQuery.adminId = req.user._id || req.user.id;
     }
 
-    const [appointments, contactAppts, allUsers] = await Promise.all([
+    const [appointments, contactAppts] = await Promise.all([
       prisma.appointment.findMany({ where: whereQuery }),
-      prisma.contact.findMany({ where: { ...contactsWhereQuery, disposition: 'Appointment' } }),
-      prisma.user.findMany({ where: { role: { in: ['agent', 'tl'] } } })
+      prisma.contact.findMany({ where: { ...contactsWhereQuery, disposition: 'Appointment' } })
     ]);
 
-    const userMap = allUsers.reduce((acc, u) => { acc[u.id] = u.name; return acc; }, {});
+    const userMapRaw = await resolveUserNamesForRecords([...appointments, ...contactAppts]);
+    const userMap = {};
+    Object.keys(userMapRaw).forEach(k => {
+      userMap[k] = userMapRaw[k].name;
+    });
 
     const mappedContactAppts = contactAppts.map(c => ({
       _id: c.id, contactId: c.id, fields: c.fields, batchId: c.batchId,
@@ -286,13 +289,16 @@ router.get('/callbacks', verify, authorize(['superadmin', 'agent', 'tl', 'admin'
       contactsWhereQuery.adminId = req.user._id || req.user.id;
     }
 
-    const [callbacks, contactCbs, allUsers] = await Promise.all([
+    const [callbacks, contactCbs] = await Promise.all([
       prisma.callback.findMany({ where: whereQuery }),
-      prisma.contact.findMany({ where: { ...contactsWhereQuery, disposition: 'CallBack' } }),
-      prisma.user.findMany({ where: { role: { in: ['agent', 'tl'] } } })
+      prisma.contact.findMany({ where: { ...contactsWhereQuery, disposition: 'CallBack' } })
     ]);
 
-    const userMap = allUsers.reduce((acc, u) => { acc[u.id] = u.name; return acc; }, {});
+    const userMapRaw = await resolveUserNamesForRecords([...callbacks, ...contactCbs]);
+    const userMap = {};
+    Object.keys(userMapRaw).forEach(k => {
+      userMap[k] = userMapRaw[k].name;
+    });
 
     const mappedCallbacks = callbacks.map(c => ({
       ...c, _id: c.id,
@@ -598,13 +604,16 @@ router.get('/history/:phone', verify, authorize(['superadmin', 'agent', 'tl', 'a
       whereQuery.adminId = req.user._id || req.user.id;
     }
 
-    const [leads, contactLeads, allUsers] = await Promise.all([
+    const [leads, contactLeads] = await Promise.all([
       prisma.lead.findMany({ where: { ...whereQuery, isDeleted: undefined } }),
-      prisma.contact.findMany({ where: { ...whereQuery, disposition: 'Lead' } }),
-      prisma.user.findMany({ where: { role: { in: ['agent', 'tl'] } } })
+      prisma.contact.findMany({ where: { ...whereQuery, disposition: 'Lead' } })
     ]);
 
-    const userMap = allUsers.reduce((acc, u) => { acc[u.id] = u.name; return acc; }, {});
+    const userMapRaw = await resolveUserNamesForRecords([...leads, ...contactLeads]);
+    const userMap = {};
+    Object.keys(userMapRaw).forEach(k => {
+      userMap[k] = userMapRaw[k].name;
+    });
     const leadContactIds = new Set(leads.map(l => l.contactId));
     const uniqueContactLeads = contactLeads.filter(c => !leadContactIds.has(c.id));
 

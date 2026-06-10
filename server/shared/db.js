@@ -6,7 +6,7 @@ const { PrismaPg } = require('@prisma/adapter-pg');
 const pool = new Pool({ 
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false },
-  max: 5,                     // Limit concurrent database connections
+  max: 20,                     // Scale concurrent database connections for speed
   idleTimeoutMillis: 30000,   // Close idle connections after 30 seconds
   connectionTimeoutMillis: 5000 // Return error if connection takes > 5 seconds
 });

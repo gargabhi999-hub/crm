@@ -23,6 +23,13 @@ const CustomTooltip = ({ active, payload, label }) => {
   );
 };
 
+const formatDateStr = (date) => {
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
+  const dd = String(date.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+};
+
 const Reports = () => {
   const { user }   = useAuth();
   const { socket } = useSocket();
@@ -35,6 +42,26 @@ const Reports = () => {
   const [isExporting,   setIsExporting]   = useState(false);
   const [fromDate,      setFromDate]      = useState('');
   const [toDate,        setToDate]        = useState('');
+
+  const setQuickFilter = (type) => {
+    const today = new Date();
+    if (type === 'today') {
+      const todayStr = formatDateStr(today);
+      setFromDate(todayStr);
+      setToDate(todayStr);
+    } else if (type === 'yesterday') {
+      const yesterday = new Date();
+      yesterday.setDate(today.getDate() - 1);
+      const yesterdayStr = formatDateStr(yesterday);
+      setFromDate(yesterdayStr);
+      setToDate(yesterdayStr);
+    } else if (type === 'lastweek') {
+      const lastWeekStart = new Date();
+      lastWeekStart.setDate(today.getDate() - 7);
+      setFromDate(formatDateStr(lastWeekStart));
+      setToDate(formatDateStr(today));
+    }
+  };
 
   const fetchData = async () => {
     try {
@@ -189,6 +216,48 @@ const Reports = () => {
             <option value="agent-log">Agent Work Logs</option>
           </select>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <button 
+              type="button"
+              className="btn btn-outline" 
+              style={{
+                padding: '4px 10px', fontSize: '0.7rem', borderRadius: 20, height: 28,
+                borderColor: (fromDate === formatDateStr(new Date()) && toDate === formatDateStr(new Date())) ? 'var(--primary)' : 'rgba(0,0,0,0.1)',
+                background: (fromDate === formatDateStr(new Date()) && toDate === formatDateStr(new Date())) ? 'rgba(99, 102, 241, 0.12)' : 'transparent',
+                color: (fromDate === formatDateStr(new Date()) && toDate === formatDateStr(new Date())) ? 'var(--primary)' : 'var(--text-secondary)',
+                fontWeight: 700
+              }}
+              onClick={() => setQuickFilter('today')}
+            >
+              Today
+            </button>
+            <button 
+              type="button"
+              className="btn btn-outline" 
+              style={{
+                padding: '4px 10px', fontSize: '0.7rem', borderRadius: 20, height: 28,
+                borderColor: (fromDate === formatDateStr(new Date(new Date().setDate(new Date().getDate() - 1))) && toDate === formatDateStr(new Date(new Date().setDate(new Date().getDate() - 1)))) ? 'var(--primary)' : 'rgba(0,0,0,0.1)',
+                background: (fromDate === formatDateStr(new Date(new Date().setDate(new Date().getDate() - 1))) && toDate === formatDateStr(new Date(new Date().setDate(new Date().getDate() - 1)))) ? 'rgba(99, 102, 241, 0.12)' : 'transparent',
+                color: (fromDate === formatDateStr(new Date(new Date().setDate(new Date().getDate() - 1))) && toDate === formatDateStr(new Date(new Date().setDate(new Date().getDate() - 1)))) ? 'var(--primary)' : 'var(--text-secondary)',
+                fontWeight: 700
+              }}
+              onClick={() => setQuickFilter('yesterday')}
+            >
+              Yesterday
+            </button>
+            <button 
+              type="button"
+              className="btn btn-outline" 
+              style={{
+                padding: '4px 10px', fontSize: '0.7rem', borderRadius: 20, height: 28,
+                borderColor: (fromDate === formatDateStr(new Date(new Date().setDate(new Date().getDate() - 7))) && toDate === formatDateStr(new Date())) ? 'var(--primary)' : 'rgba(0,0,0,0.1)',
+                background: (fromDate === formatDateStr(new Date(new Date().setDate(new Date().getDate() - 7))) && toDate === formatDateStr(new Date())) ? 'rgba(99, 102, 241, 0.12)' : 'transparent',
+                color: (fromDate === formatDateStr(new Date(new Date().setDate(new Date().getDate() - 7))) && toDate === formatDateStr(new Date())) ? 'var(--primary)' : 'var(--text-secondary)',
+                fontWeight: 700
+              }}
+              onClick={() => setQuickFilter('lastweek')}
+            >
+              Last Week
+            </button>
             <input type="date" className="input-field" style={{ marginBottom: 0, height: 36, fontSize: '0.8rem' }} value={fromDate} onChange={e => setFromDate(e.target.value)} />
             <span style={{ color: 'var(--text-muted)' }}>to</span>
             <input type="date" className="input-field" style={{ marginBottom: 0, height: 36, fontSize: '0.8rem' }} value={toDate} onChange={e => setToDate(e.target.value)} />

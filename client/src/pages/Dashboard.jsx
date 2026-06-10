@@ -84,6 +84,13 @@ const SectionLabel = ({ icon: Icon, label, accent = '#2563eb' }) => (
 /* ─────────────────────────────────────────
    MAIN DASHBOARD
 ───────────────────────────────────────── */
+const formatDateStr = (date) => {
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
+  const dd = String(date.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+};
+
 const Dashboard = () => {
   const { user, updateUser, activeBreak, setActiveBreak } = useAuth();
   const { socket } = useSocket();
@@ -94,6 +101,26 @@ const Dashboard = () => {
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [agentCallsData, setAgentCallsData] = useState([]);
+
+  const setQuickFilter = (type) => {
+    const today = new Date();
+    if (type === 'today') {
+      const todayStr = formatDateStr(today);
+      setFromDate(todayStr);
+      setToDate(todayStr);
+    } else if (type === 'yesterday') {
+      const yesterday = new Date();
+      yesterday.setDate(today.getDate() - 1);
+      const yesterdayStr = formatDateStr(yesterday);
+      setFromDate(yesterdayStr);
+      setToDate(yesterdayStr);
+    } else if (type === 'lastweek') {
+      const lastWeekStart = new Date();
+      lastWeekStart.setDate(today.getDate() - 7);
+      setFromDate(formatDateStr(lastWeekStart));
+      setToDate(formatDateStr(today));
+    }
+  };
 
   const handleStartBreak = async (type) => {
     try {
@@ -293,16 +320,62 @@ const Dashboard = () => {
 
       {/* ── DATE RANGE FILTER BAR ── */}
       {user?.role !== 'agent' && (
-        <div className="glass-panel" style={{ display: 'flex', gap: 12, alignItems: 'center', padding: '14px 18px', borderRadius: 16, marginBottom: 24, background: 'rgba(255, 255, 255, 0.72)', border: '1px solid rgba(255, 255, 255, 0.85)', flexWrap: 'wrap', boxShadow: '0 8px 30px -10px rgba(0,0,0,0.07)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Filter size={15} color="var(--primary)" />
-            <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Date Range Filter</span>
+        <div className="glass-panel" style={{ display: 'flex', gap: 12, alignItems: 'center', padding: '14px 18px', borderRadius: 16, marginBottom: 24, background: 'rgba(255, 255, 255, 0.72)', border: '1px solid rgba(255, 255, 255, 0.85)', flexWrap: 'wrap', boxShadow: '0 8px 30px -10px rgba(0,0,0,0.07)', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Filter size={15} color="var(--primary)" />
+              <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Date Range Filter</span>
+            </div>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button 
+                type="button"
+                className="btn btn-outline" 
+                style={{
+                  padding: '4px 12px', fontSize: '0.72rem', borderRadius: 20, height: 28,
+                  borderColor: (fromDate === formatDateStr(new Date()) && toDate === formatDateStr(new Date())) ? 'var(--primary)' : 'rgba(0,0,0,0.1)',
+                  background: (fromDate === formatDateStr(new Date()) && toDate === formatDateStr(new Date())) ? 'rgba(99, 102, 241, 0.12)' : 'transparent',
+                  color: (fromDate === formatDateStr(new Date()) && toDate === formatDateStr(new Date())) ? 'var(--primary)' : 'var(--text-secondary)',
+                  fontWeight: 700
+                }}
+                onClick={() => setQuickFilter('today')}
+              >
+                Today
+              </button>
+              <button 
+                type="button"
+                className="btn btn-outline" 
+                style={{
+                  padding: '4px 12px', fontSize: '0.72rem', borderRadius: 20, height: 28,
+                  borderColor: (fromDate === formatDateStr(new Date(new Date().setDate(new Date().getDate() - 1))) && toDate === formatDateStr(new Date(new Date().setDate(new Date().getDate() - 1)))) ? 'var(--primary)' : 'rgba(0,0,0,0.1)',
+                  background: (fromDate === formatDateStr(new Date(new Date().setDate(new Date().getDate() - 1))) && toDate === formatDateStr(new Date(new Date().setDate(new Date().getDate() - 1)))) ? 'rgba(99, 102, 241, 0.12)' : 'transparent',
+                  color: (fromDate === formatDateStr(new Date(new Date().setDate(new Date().getDate() - 1))) && toDate === formatDateStr(new Date(new Date().setDate(new Date().getDate() - 1)))) ? 'var(--primary)' : 'var(--text-secondary)',
+                  fontWeight: 700
+                }}
+                onClick={() => setQuickFilter('yesterday')}
+              >
+                Yesterday
+              </button>
+              <button 
+                type="button"
+                className="btn btn-outline" 
+                style={{
+                  padding: '4px 12px', fontSize: '0.72rem', borderRadius: 20, height: 28,
+                  borderColor: (fromDate === formatDateStr(new Date(new Date().setDate(new Date().getDate() - 7))) && toDate === formatDateStr(new Date())) ? 'var(--primary)' : 'rgba(0,0,0,0.1)',
+                  background: (fromDate === formatDateStr(new Date(new Date().setDate(new Date().getDate() - 7))) && toDate === formatDateStr(new Date())) ? 'rgba(99, 102, 241, 0.12)' : 'transparent',
+                  color: (fromDate === formatDateStr(new Date(new Date().setDate(new Date().getDate() - 7))) && toDate === formatDateStr(new Date())) ? 'var(--primary)' : 'var(--text-secondary)',
+                  fontWeight: 700
+                }}
+                onClick={() => setQuickFilter('lastweek')}
+              >
+                Last Week
+              </button>
+            </div>
           </div>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
             <input 
               type="date" 
               className="input-field" 
-              style={{ marginBottom: 0, padding: '6px 12px', fontSize: '0.8rem', width: 140 }} 
+              style={{ marginBottom: 0, padding: '6px 12px', fontSize: '0.8rem', width: 140, height: 32 }} 
               value={fromDate} 
               onChange={e => setFromDate(e.target.value)} 
             />
@@ -310,14 +383,14 @@ const Dashboard = () => {
             <input 
               type="date" 
               className="input-field" 
-              style={{ marginBottom: 0, padding: '6px 12px', fontSize: '0.8rem', width: 140 }} 
+              style={{ marginBottom: 0, padding: '6px 12px', fontSize: '0.8rem', width: 140, height: 32 }} 
               value={toDate} 
               onChange={e => setToDate(e.target.value)} 
             />
             {(fromDate || toDate) && (
               <button 
                 className="btn btn-outline" 
-                style={{ padding: '6px 12px', fontSize: '0.75rem' }} 
+                style={{ padding: '6px 12px', fontSize: '0.75rem', height: 32 }} 
                 onClick={() => { setFromDate(''); setToDate(''); }}
               >
                 Clear

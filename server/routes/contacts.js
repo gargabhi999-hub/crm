@@ -1,6 +1,7 @@
 const router = require('express').Router();
 const { prisma } = require('../shared/db');
 const { authorize, verify } = require('../shared/authMiddleware');
+const { resolveUserNamesForRecords } = require('../shared/userResolver');
 const { consolidateCallbacks, cleanupAllCallbacks, normalizePhone } = require('../shared/callbackUtils');
 const { broadcast } = require('../shared/notificationClient');
 const { triggerConversionEmail } = require('../shared/triggerConversionEmail');
@@ -86,10 +87,8 @@ router.get('/', verify, authorize(['superadmin', 'admin', 'tl', 'agent']), async
         );
       });
 
-      const userMap = {};
-      const allUsers = await prisma.user.findMany({ select: { id: true, name: true, tlId: true, adminId: true } });
-      allUsers.forEach(u => userMap[u.id] = u);
-
+      const userMap = await resolveUserNamesForRecords(contacts);
+      
       contacts = contacts.map(c => {
         const agent = c.assignedTo ? userMap[c.assignedTo] : null;
         const tl = agent?.tlId ? userMap[agent.tlId] : null;
@@ -132,19 +131,17 @@ router.get('/', verify, authorize(['superadmin', 'admin', 'tl', 'agent']), async
       const limitNum = parseInt(limit) || 50;
       const skipNum = (pageNum - 1) * limitNum;
 
-      const [total, contactsRaw, allUsers] = await Promise.all([
+      const [total, contactsRaw] = await Promise.all([
         prisma.contact.count({ where: whereQuery }),
         prisma.contact.findMany({
           where: whereQuery,
           orderBy: { createdAt: 'desc' },
           skip: skipNum,
           take: limitNum
-        }),
-        prisma.user.findMany({ select: { id: true, name: true, tlId: true, adminId: true } })
+        })
       ]);
       let contacts = contactsRaw;
-      const userMap = {};
-      allUsers.forEach(u => userMap[u.id] = u);
+      const userMap = await resolveUserNamesForRecords(contacts);
 
       contacts = contacts.map(c => {
         const agent = c.assignedTo ? userMap[c.assignedTo] : null;
@@ -170,13 +167,9 @@ router.get('/', verify, authorize(['superadmin', 'admin', 'tl', 'agent']), async
 
       return res.json({ contacts, total, page: pageNum, limit: limitNum, pages: Math.ceil(total / limitNum), totalLeadValue });
     } else {
-      const [contactsRaw, allUsers] = await Promise.all([
-        prisma.contact.findMany({ where: whereQuery, orderBy: { createdAt: 'desc' } }),
-        prisma.user.findMany({ select: { id: true, name: true, tlId: true, adminId: true } })
-      ]);
+      const contactsRaw = await prisma.contact.findMany({ where: whereQuery, orderBy: { createdAt: 'desc' } });
       let contacts = contactsRaw;
-      const userMap = {};
-      allUsers.forEach(u => userMap[u.id] = u);
+      const userMap = await resolveUserNamesForRecords(contacts);
 
       contacts = contacts.map(c => {
         const agent = c.assignedTo ? userMap[c.assignedTo] : null;

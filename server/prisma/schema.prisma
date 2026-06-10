@@ -100,6 +100,11 @@ model Lead {
   createdAt    DateTime? @default(now()) @map("created_at")
   lastModified DateTime? @updatedAt @map("last_modified")
 
+  @@index([assignedTo])
+  @@index([adminId])
+  @@index([contactId])
+  @@index([transactionId])
+  @@index([createdAt])
   @@map("leads")
 }
 
@@ -116,6 +121,10 @@ model Appointment {
   createdAt     DateTime? @default(now()) @map("created_at")
   lastModified  DateTime? @updatedAt @map("last_modified")
 
+  @@index([assignedTo])
+  @@index([adminId])
+  @@index([contactId])
+  @@index([appointmentDt])
   @@map("appointments")
 }
 
@@ -134,6 +143,10 @@ model Callback {
   createdAt    DateTime? @default(now()) @map("created_at")
   lastModified DateTime? @updatedAt @map("last_modified")
 
+  @@index([assignedTo])
+  @@index([adminId])
+  @@index([contactId])
+  @@index([callBackDt])
   @@map("callbacks")
 }
 
