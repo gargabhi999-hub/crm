@@ -34,8 +34,18 @@ router.get('/', verify, authorize(['superadmin', 'admin', 'tl', 'agent']), async
   try {
     const { disposition, agentId, tlId, search, batchId, page, limit } = req.query;
 
-    // Restrict agents from viewing all contacts directly without search term
-    if (req.user.role === 'agent' && (!disposition || disposition === 'all') && (!search || !search.trim())) {
+    let isPhoneSearchInvalid = false;
+    if (search && search.trim()) {
+      const q = search.trim();
+      const isPhoneLike = /^[0-9\s+\-()]+$/.test(q);
+      const digitCount = (q.match(/\d/g) || []).length;
+      if (isPhoneLike && digitCount > 0 && digitCount < 5) {
+        isPhoneSearchInvalid = true;
+      }
+    }
+
+    // Restrict agents from viewing all contacts directly without search term or with invalid short phone search
+    if (req.user.role === 'agent' && (!disposition || disposition === 'all') && (!search || !search.trim() || isPhoneSearchInvalid)) {
       if (page) {
         return res.json({
           contacts: [],
@@ -518,8 +528,8 @@ router.get('/stats', verify, authorize(['superadmin', 'agent', 'tl', 'admin']), 
         COUNT(CASE WHEN disposition = 'Appointment' THEN 1 END)::int as appointment,
         COUNT(CASE WHEN disposition = 'CallBack' THEN 1 END)::int as callback,
         COUNT(CASE WHEN disposition = 'Invalid' THEN 1 END)::int as invalid,
-        COUNT(CASE WHEN disposition = 'HungUp' AND rechurn_count >= 3 THEN 1 END)::int as hungup,
-        COUNT(CASE WHEN disposition = 'CallNotAnswered' AND rechurn_count >= 3 THEN 1 END)::int as callnotanswered,
+        COUNT(CASE WHEN disposition = 'HungUp' THEN 1 END)::int as hungup,
+        COUNT(CASE WHEN disposition = 'CallNotAnswered' THEN 1 END)::int as callnotanswered,
         COUNT(CASE WHEN disposition = 'DoNotCall' THEN 1 END)::int as donotcall,
         COUNT(CASE WHEN disposition = 'NotInterested' THEN 1 END)::int as notinterested,
         COUNT(CASE WHEN disposition = 'LanguageBarrier' THEN 1 END)::int as languagebarrier,
@@ -594,6 +604,64 @@ router.get('/stats', verify, authorize(['superadmin', 'agent', 'tl', 'admin']), 
   } catch (err) {
     console.error('Stats error:', err);
     res.status(500).json({ error: 'Failed to fetch stats' });
+  }
+});
+
+router.get('/agent-calls-summary', verify, authorize(['superadmin', 'admin', 'tl']), async (req, res) => {
+  try {
+    const userId = req.user._id || req.user.id;
+    const { fromDate, toDate } = req.query;
+
+    const userQuery = { role: 'agent', isDeleted: false };
+    if (req.user.role === 'tl') userQuery.tlId = userId;
+    if (req.user.role === 'admin') userQuery.adminId = userId;
+    
+    const agents = await prisma.user.findMany({ 
+      where: userQuery,
+      select: { id: true, name: true }
+    });
+    const agentIds = agents.map(a => a.id);
+
+    if (agentIds.length === 0) return res.json([]);
+
+    let conditions = ["is_deleted = false", `assigned_to IN (${agentIds.map(id => `'${id}'`).join(',')})`, "disposed_at IS NOT NULL"];
+    let params = [];
+    let paramCount = 1;
+
+    if (fromDate && toDate) {
+      const start = new Date(fromDate);
+      const end = new Date(new Date(toDate).setHours(23, 59, 59, 999));
+      conditions.push(`disposed_at >= $${paramCount++}`);
+      params.push(start);
+      conditions.push(`disposed_at <= $${paramCount++}`);
+      params.push(end);
+    }
+
+    const queryText = `
+      SELECT 
+        assigned_to as "agentId",
+        COUNT(*)::int as "callsCount"
+      FROM contacts
+      WHERE ${conditions.join(' AND ')}
+      GROUP BY assigned_to
+    `;
+
+    const rawStats = await prisma.$queryRawUnsafe(queryText, ...params);
+    const statsMap = {};
+    rawStats.forEach(s => {
+      statsMap[s.agentId] = s.callsCount;
+    });
+
+    const result = agents.map(a => ({
+      agentId: a.id,
+      name: a.name || 'Unknown',
+      callsCount: statsMap[a.id] || 0
+    }));
+
+    res.json(result);
+  } catch (err) {
+    console.error('Agent calls summary error:', err);
+    res.status(500).json({ error: 'Failed to fetch agent calls summary' });
   }
 });
 

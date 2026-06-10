@@ -47,6 +47,11 @@ const Contacts = ({ filterType }) => {
   const [allAgents,        setAllAgents]        = useState([]);
   const [filteredAgents,   setFilteredAgents]   = useState([]);
 
+  const queryStr = debouncedSearchTerm.trim();
+  const isPhoneLike = /^[0-9\s+\-()]+$/.test(queryStr);
+  const digitCount = (queryStr.match(/\d/g) || []).length;
+  const isPhoneSearchInvalid = user?.role === 'agent' && isPhoneLike && digitCount > 0 && digitCount < 5;
+
   // Debouncing search term to prevent spamming queries
   useEffect(() => {
     const delayDebounceFn = setTimeout(() => {
@@ -82,7 +87,7 @@ const Contacts = ({ filterType }) => {
         }
       }
 
-      if ((isAdmin || isAgent) && isAllContacts && hasNoFilters) {
+      if ((isAdmin || isAgent) && isAllContacts && (hasNoFilters || isPhoneSearchInvalid)) {
         setContacts([]);
         setTotalRecords(0);
         setTotalPages(1);
@@ -307,11 +312,16 @@ const Contacts = ({ filterType }) => {
             <p style={{ color: 'var(--text-muted)' }}>{error}</p>
             <button className="btn btn-primary" style={{ marginTop: 20 }} onClick={fetchContacts}>Retry Connection</button>
           </div>
-        ) : (user?.role === 'admin' || user?.role === 'superadmin' || user?.role === 'agent') && (!filterType || filterType === 'all') && !selectedTl && !selectedAgent && !debouncedSearchTerm ? (
-          <div className="glass-panel" style={{ padding: '60px 40px', textAlign: 'center', gridColumn: '1 / -1' }}>
-            <Search size={40} style={{ color: 'var(--primary)', marginBottom: 16, opacity: 0.8 }} />
-            <h3>Please search to find contacts</h3>
-            <p style={{ color: 'var(--text-muted)' }}>{user?.role === 'agent' ? 'Contacts allocated to you will be shown once you use the search bar.' : 'Contacts will be shown once you apply a filter or use the search bar.'}</p>
+        ) : (user?.role === 'admin' || user?.role === 'superadmin' || user?.role === 'agent') && (!filterType || filterType === 'all') && !selectedTl && !selectedAgent && (!debouncedSearchTerm || isPhoneSearchInvalid) ? (
+          <div className="glass-panel animate-fade-in" style={{ padding: '60px 40px', textAlign: 'center', gridColumn: '1 / -1' }}>
+            <Search size={40} style={{ color: isPhoneSearchInvalid ? 'var(--warning)' : 'var(--primary)', marginBottom: 16, opacity: 0.8 }} />
+            <h3>{isPhoneSearchInvalid ? 'Search Validation' : 'Please search to find contacts'}</h3>
+            <p style={{ color: 'var(--text-muted)' }}>
+              {isPhoneSearchInvalid 
+                ? 'Please enter at least 5 digits to search by contact number.' 
+                : (user?.role === 'agent' ? 'Contacts allocated to you will be shown once you use the search bar.' : 'Contacts will be shown once you apply a filter or use the search bar.')
+              }
+            </p>
           </div>
         ) : filtered.length === 0 ? (
           <div className="glass-panel" style={{ padding: '60px 40px', textAlign: 'center', gridColumn: '1 / -1' }}>

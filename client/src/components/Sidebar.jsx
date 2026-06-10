@@ -3,7 +3,7 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import {
   LayoutDashboard, Users, Upload, Database, Star, Calendar,
-  LogOut, PhoneCall, BarChart2, PhoneOff, Clock, X
+  LogOut, PhoneCall, BarChart2, PhoneOff, Clock, X, Activity
 } from 'lucide-react';
 
 const Sidebar = ({ isOpen, onClose }) => {
@@ -32,7 +32,7 @@ const Sidebar = ({ isOpen, onClose }) => {
     { path: '/callbacks', icon: Clock, label: 'Callbacks' },
     { path: '/hungup', icon: PhoneOff, label: 'Hung Up Calls', roles: ['admin', 'tl'] },
     { path: '/reports', icon: BarChart2, label: 'Reports', roles: ['admin', 'tl'] },
-    { path: '/agent-logs', icon: Clock, label: 'Agent Logs', roles: ['admin'] },
+    { path: '/agent-logs', icon: Activity, label: 'Agent Logs', roles: ['admin'] },
   ];
 
   const filteredItems = navItems.filter(item => !item.roles || item.roles.includes(role) || (role === 'superadmin' && item.roles.includes('admin')));

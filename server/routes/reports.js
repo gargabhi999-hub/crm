@@ -17,6 +17,122 @@ const DISP_LABELS = {
 router.get('/download', verify, authorize(['superadmin', 'admin', 'tl', 'agent']), async (req, res) => {
   try {
     const { format = 'csv', agentId, disposition, batchId, reportType, fromDate, toDate } = req.query;
+
+    if (reportType === 'agent-log') {
+      const logWhere = {};
+      if (fromDate && toDate) {
+        logWhere.loginAt = {
+          gte: new Date(fromDate),
+          lte: new Date(new Date(toDate).setHours(23, 59, 59, 999))
+        };
+      }
+
+      if (req.user.role === 'agent') {
+        logWhere.userId = req.user._id || req.user.id;
+      } else if (req.user.role === 'tl') {
+        const agents = await prisma.user.findMany({ where: { role: 'agent', tlId: req.user._id || req.user.id } });
+        const agentIds = agents.map(a => a.id);
+        if (agentId && agentIds.includes(agentId)) {
+          logWhere.userId = agentId;
+        } else {
+          logWhere.userId = { in: agentIds };
+        }
+      } else if (req.user.role === 'admin') {
+        const agents = await prisma.user.findMany({ where: { role: 'agent', adminId: req.user._id || req.user.id } });
+        const agentIds = agents.map(a => a.id);
+        if (agentId && agentIds.includes(agentId)) {
+          logWhere.userId = agentId;
+        } else {
+          logWhere.userId = { in: agentIds };
+        }
+      } else if (req.user.role === 'superadmin') {
+        if (agentId) {
+          logWhere.userId = agentId;
+        }
+      }
+
+      const logs = await prisma.agentWorkLog.findMany({
+        where: logWhere,
+        include: {
+          user: {
+            select: {
+              name: true,
+              username: true,
+              tlId: true
+            }
+          }
+        },
+        orderBy: {
+          loginAt: 'desc'
+        }
+      });
+
+      const tlIds = [...new Set(logs.map(l => l.user.tlId).filter(Boolean))];
+      const tlsMap = {};
+      if (tlIds.length > 0) {
+        const tls = await prisma.user.findMany({
+          where: { id: { in: tlIds } },
+          select: { id: true, name: true }
+        });
+        tls.forEach(t => {
+          tlsMap[t.id] = t.name;
+        });
+      }
+
+      const formatSeconds = (secs) => {
+        if (!secs || isNaN(secs)) return '00:00:00';
+        const h = Math.floor(secs / 3600);
+        const m = Math.floor((secs % 3600) / 60);
+        const s = secs % 60;
+        return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+      };
+
+      const rows = logs.map((log, index) => {
+        const totalBreakSeconds = log.lunchDuration + log.bioDuration + log.teaDuration;
+        const totalSessionTime = log.logoutAt 
+          ? Math.max(0, Math.floor((new Date(log.logoutAt) - new Date(log.loginAt)) / 1000))
+          : Math.max(0, Math.floor((new Date(log.lastActiveAt) - new Date(log.loginAt)) / 1000));
+        const computedWorkTime = Math.max(0, totalSessionTime - totalBreakSeconds);
+        const actualWorkTime = log.logoutAt ? log.totalWorkTime : computedWorkTime;
+
+        return {
+          'S.No.': index + 1,
+          'Agent Name': log.user.name || 'Unknown',
+          'Username/Email': log.user.username || 'N/A',
+          'Team Lead': log.user.tlId ? (tlsMap[log.user.tlId] || 'Unknown') : 'None',
+          'Login Time': log.loginAt ? new Date(log.loginAt).toLocaleString('en-IN') : 'N/A',
+          'Logout Time': log.logoutAt ? new Date(log.logoutAt).toLocaleString('en-IN') : 'Active Session',
+          'Last Active At': log.lastActiveAt ? new Date(log.lastActiveAt).toLocaleString('en-IN') : 'N/A',
+          'Session Duration': formatSeconds(totalSessionTime),
+          'Work Time (HH:MM:SS)': formatSeconds(actualWorkTime),
+          'Lunch Break Duration (HH:MM:SS)': formatSeconds(log.lunchDuration),
+          'Bio Break Duration (HH:MM:SS)': formatSeconds(log.bioDuration),
+          'Tea Break Duration (HH:MM:SS)': formatSeconds(log.teaDuration),
+          'Total Break Duration (HH:MM:SS)': formatSeconds(totalBreakSeconds)
+        };
+      });
+
+      if (format === 'xlsx') {
+        const ws = XLSX.utils.json_to_sheet(rows);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Agent Logs Report');
+        const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', `attachment; filename="agent_logs_report_${Date.now()}.xlsx"`);
+        return res.send(buffer);
+      }
+
+      const headers = rows.length ? Object.keys(rows[0]) : [];
+      const escape = v => {
+        const s = String(v ?? '');
+        if (s.includes(',') || s.includes('"') || s.includes('\n')) return `"${s.replace(/"/g, '""')}"`;
+        return s;
+      };
+      const csv = [headers.map(escape).join(','), ...rows.map(r => headers.map(h => escape(r[h])).join(','))].join('\n');
+      res.set({ 'Content-Type': 'text/csv', 'Content-Disposition': `attachment; filename="agent_logs_report_${Date.now()}.csv"` });
+      return res.send(csv);
+    }
+
     let where = { isDeleted: false };
     
     if (reportType === 'lead') {

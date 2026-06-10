@@ -5,8 +5,11 @@ import api from '../utils/api';
 import {
   Users, PhoneCall, Star, Calendar, Clock,
   XCircle, TrendingUp, Database, RefreshCw, PhoneOff,
-  AlertCircle, ArrowUpRight, Activity, Zap, Trash2, Settings, Save, X, Coffee
+  AlertCircle, ArrowUpRight, Activity, Zap, Trash2, Settings, Save, X, Coffee, Filter
 } from 'lucide-react';
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer
+} from 'recharts';
 import SuperAdminDashboard from './SuperAdminDashboard';
 import BreakTimerOverlay from '../components/BreakTimerOverlay';
 
@@ -88,6 +91,9 @@ const Dashboard = () => {
   const [queues, setQueues] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
+  const [agentCallsData, setAgentCallsData] = useState([]);
 
   const handleStartBreak = async (type) => {
     try {
@@ -123,11 +129,19 @@ const Dashboard = () => {
   const fetchDashboardData = async (silent = false) => {
     if (!silent) setLoading(true); else setRefreshing(true);
     try {
-      const statsRes = await api.get('/contacts/stats');
+      let query = '';
+      if (fromDate && toDate) {
+        query = `?fromDate=${fromDate}&toDate=${toDate}`;
+      }
+      const statsRes = await api.get(`/contacts/stats${query}`);
       setStats({ ...statsRes.data, totalLeadValue: statsRes.data.totalLeadAmount || 0 });
       if (user?.role !== 'agent') {
-        const queuesRes = await api.get('/contacts/agent-queues');
+        const [queuesRes, summaryRes] = await Promise.all([
+          api.get('/contacts/agent-queues'),
+          api.get(`/contacts/agent-calls-summary${query}`)
+        ]);
         setQueues(queuesRes.data || []);
+        setAgentCallsData(summaryRes.data || []);
       }
     } catch (err) {
       console.error('Dashboard fetch failed:', err);
@@ -144,7 +158,7 @@ const Dashboard = () => {
     const handler = () => fetchDashboardData(true);
     events.forEach(e => socket.on(e, handler));
     return () => events.forEach(e => socket.off(e, handler));
-  }, [socket, user]);
+  }, [socket, user, fromDate, toDate]);
 
   const handleGlobalWipe = async () => {
     const confirmation = window.prompt("GLOBAL SYSTEM WIPE. This will delete EVERY record in the database except your superadmin account. Type 'DELETE' to confirm.");
@@ -276,6 +290,78 @@ const Dashboard = () => {
           )}
         </div>
       </div>
+
+      {/* ── DATE RANGE FILTER BAR ── */}
+      {user?.role !== 'agent' && (
+        <div className="glass-panel" style={{ display: 'flex', gap: 12, alignItems: 'center', padding: '14px 18px', borderRadius: 16, marginBottom: 24, background: 'rgba(255, 255, 255, 0.72)', border: '1px solid rgba(255, 255, 255, 0.85)', flexWrap: 'wrap', boxShadow: '0 8px 30px -10px rgba(0,0,0,0.07)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Filter size={15} color="var(--primary)" />
+            <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Date Range Filter</span>
+          </div>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <input 
+              type="date" 
+              className="input-field" 
+              style={{ marginBottom: 0, padding: '6px 12px', fontSize: '0.8rem', width: 140 }} 
+              value={fromDate} 
+              onChange={e => setFromDate(e.target.value)} 
+            />
+            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>to</span>
+            <input 
+              type="date" 
+              className="input-field" 
+              style={{ marginBottom: 0, padding: '6px 12px', fontSize: '0.8rem', width: 140 }} 
+              value={toDate} 
+              onChange={e => setToDate(e.target.value)} 
+            />
+            {(fromDate || toDate) && (
+              <button 
+                className="btn btn-outline" 
+                style={{ padding: '6px 12px', fontSize: '0.75rem' }} 
+                onClick={() => { setFromDate(''); setToDate(''); }}
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── AGENT CALLS BAR GRAPH ── */}
+      {!loading && user?.role !== 'agent' && agentCallsData.length > 0 && (
+        <div className="glass-panel" style={{ padding: '24px', borderRadius: 20, marginBottom: 24, background: 'rgba(255, 255, 255, 0.72)', border: '1px solid rgba(255, 255, 255, 0.85)', boxShadow: '0 8px 30px -10px rgba(0,0,0,0.07)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ width: 28, height: 28, borderRadius: 8, background: 'rgba(37, 99, 235, 0.1)', color: '#2563eb', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <PhoneCall size={14} strokeWidth={2.5} />
+              </div>
+              <h3 style={{ fontSize: '1rem', fontWeight: 800, color: '#1f2937', margin: 0 }}>Agent Call Summary</h3>
+            </div>
+            <span className="badge badge-primary">Real-time</span>
+          </div>
+          <div style={{ height: 260, width: '100%', marginTop: 16 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={agentCallsData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.05)" vertical={false} />
+                <XAxis dataKey="name" tick={{ fill: '#64748b', fontSize: 11, fontWeight: 600 }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fill: '#64748b', fontSize: 11, fontWeight: 600 }} axisLine={false} tickLine={false} />
+                <RechartsTooltip
+                  contentStyle={{ background: 'rgba(15, 23, 42, 0.9)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, boxShadow: '0 10px 30px rgba(0,0,0,0.2)' }}
+                  itemStyle={{ color: '#fff', fontSize: 13 }}
+                  labelStyle={{ color: '#94a3b8', fontSize: 12, fontWeight: 700 }}
+                />
+                <Bar dataKey="callsCount" name="Calls Done" fill="url(#colorCalls)" radius={[6, 6, 0, 0]} barSize={32} />
+                <defs>
+                  <linearGradient id="colorCalls" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#3b82f6" stopOpacity={1} />
+                    <stop offset="95%" stopColor="#6366f1" stopOpacity={0.8} />
+                  </linearGradient>
+                </defs>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
 
       {/* ── BREAK TIMER CONTROLS FOR AGENTS ── */}
       {!loading && user?.role === 'agent' && (

@@ -88,7 +88,10 @@ const Reports = () => {
       const url = window.URL.createObjectURL(new Blob([res.data]));
       const a = document.createElement('a');
       a.href = url;
-      a.setAttribute('download', `crm_report_${new Date().toISOString().split('T')[0]}.${format}`);
+      const filename = reportType === 'agent-log'
+        ? `agent_work_logs_${new Date().toISOString().split('T')[0]}.${format}`
+        : `crm_report_${new Date().toISOString().split('T')[0]}.${format}`;
+      a.setAttribute('download', filename);
       document.body.appendChild(a); a.click(); a.remove();
     } catch {
       alert('Failed to export report');
@@ -158,9 +161,11 @@ const Reports = () => {
       <div className="page-header" style={{ marginBottom: 24 }}>
         <div>
           <h1 style={{ fontSize: 'var(--h1)', fontWeight: 900, color: 'var(--text-primary)', margin: 0, display: 'flex', alignItems: 'center', gap: 10 }}>
-            <BarChart2 size={20} color="var(--primary)" /> {reportType === 'workflow' ? 'Analytics' : 'Leads'}
+            <BarChart2 size={20} color="var(--primary)" /> {reportType === 'workflow' ? 'Analytics' : reportType === 'agent-log' ? 'Agent Logs' : 'Leads'}
           </h1>
-          <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: 4 }}>Tracking performance and funnel efficiency</p>
+          <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: 4 }}>
+            {reportType === 'agent-log' ? 'Export detailed session and break reports for performance auditing' : 'Tracking performance and funnel efficiency'}
+          </p>
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
           {user?.role === 'superadmin' && (
@@ -181,6 +186,7 @@ const Reports = () => {
             <option value="workflow">Workflow</option>
             <option value="lead">Lead Report</option>
             <option value="converted">Converted Leads</option>
+            <option value="agent-log">Agent Work Logs</option>
           </select>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
             <input type="date" className="input-field" style={{ marginBottom: 0, height: 36, fontSize: '0.8rem' }} value={fromDate} onChange={e => setFromDate(e.target.value)} />
@@ -217,135 +223,185 @@ const Reports = () => {
         </div>
       )}
 
-      {/* Summary pills */}
-      {!loading && stats && (
-        <div className="grid-stats" style={{ marginBottom: 20 }}>
-          {summaryPills.map(p => (
-            <div key={p.label} className="glass-panel" style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: 4, borderTop: `4px solid ${p.color}` }}>
-              <span style={{ fontSize: '0.65rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{p.label}</span>
-              <span style={{ fontWeight: 900, fontSize: '1.4rem', color: 'var(--text-primary)', lineHeight: 1 }}>{p.value}</span>
-            </div>
-          ))}
-        </div>
-      )}
+      {/* Content Area */}
+      {reportType === 'agent-log' ? (
+        <div className="glass-panel animate-fade-in" style={{ padding: '40px', textAlign: 'center', maxWidth: 600, margin: '40px auto', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20 }}>
+          <div style={{ width: 64, height: 64, borderRadius: '50%', background: 'rgba(99, 102, 241, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 8 }}>
+            <FileSpreadsheet size={32} color="var(--primary)" />
+          </div>
+          <div>
+            <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: 8 }}>
+              Agent Work Logs Report
+            </h2>
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', lineHeight: '1.6', maxWidth: 460 }}>
+              Export a detailed report of agent activity including login/logout times, active sessions, total work time, and detailed break tracking (lunch, bio, and tea breaks).
+            </p>
+          </div>
 
-      {/* Charts */}
-      {loading ? (
-        <div className="grid-2">
-          {[0, 1].map(i => (
-            <div key={i} className="glass-panel" style={{ height: 380, padding: 'var(--card-p)' }}>
-              <div className="skeleton" style={{ height: 14, width: '40%', marginBottom: 20 }} />
-              <div className="skeleton" style={{ height: 300 }} />
+          <div style={{ width: '100%', borderTop: '1px solid var(--border)', paddingTop: 20 }}>
+            {(!fromDate || !toDate) ? (
+              <div style={{ padding: '12px 16px', borderRadius: 'var(--r-md)', background: 'rgba(245, 158, 11, 0.1)', border: '1px solid rgba(245, 158, 11, 0.2)', color: 'var(--warning)', fontSize: '0.8rem', fontWeight: 600, marginBottom: 16 }}>
+                Please select both From Date and To Date filters above to export.
+              </div>
+            ) : (
+              <div style={{ padding: '12px 16px', borderRadius: 'var(--r-md)', background: 'rgba(16, 185, 129, 0.05)', border: '1px solid rgba(16, 185, 129, 0.1)', color: 'var(--success)', fontSize: '0.8rem', fontWeight: 600, marginBottom: 16 }}>
+                Date Range Selected: {new Date(fromDate).toLocaleDateString('en-IN')} to {new Date(toDate).toLocaleDateString('en-IN')}
+              </div>
+            )}
+            
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'center', width: '100%' }}>
+              <button 
+                className="btn btn-outline" 
+                onClick={() => handleExport('csv')} 
+                disabled={isExporting || !fromDate || !toDate} 
+                style={{ height: 42, padding: '0 24px', flex: 1, maxWidth: 180, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, fontSize: '0.85rem' }}
+              >
+                <Download size={16} /> Download CSV
+              </button>
+              <button 
+                className="btn btn-primary" 
+                onClick={() => handleExport('xlsx')} 
+                disabled={isExporting || !fromDate || !toDate} 
+                style={{ height: 42, padding: '0 24px', flex: 1, maxWidth: 180, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, fontSize: '0.85rem' }}
+              >
+                <FileSpreadsheet size={16} /> Download Excel
+              </button>
             </div>
-          ))}
-        </div>
-      ) : chartData.length === 0 ? (
-        <div className="glass-panel" style={{ padding: '80px 40px', textAlign: 'center' }}>
-          <BarChart2 size={64} style={{ opacity: 0.08, margin: '0 auto 20px', display: 'block' }} />
-          <h3 style={{ marginBottom: 8 }}>No data to display</h3>
-          <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>No contacts have been disposed for this selection yet.</p>
+          </div>
         </div>
       ) : (
-        <div className="grid-2">
-          {/* Main Chart Area */}
-          <div className="glass-panel" style={{ padding: 'var(--card-p)', minHeight: 450 }}>
-            <h2 style={{ fontSize: '0.85rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--text-muted)', marginBottom: 24, display: 'flex', alignItems: 'center', gap: 8 }}>
-              {reportType === 'workflow' ? 'Disposition Funnel' : 'Success Distribution'}
-            </h2>
-            <ResponsiveContainer width="100%" height={350}>
-              <PieChart>
-                <Pie
-                  data={chartData}
-                  cx="50%" cy="50%"
-                  innerRadius={80} outerRadius={125}
-                  paddingAngle={5}
-                  dataKey="value"
-                  animationBegin={0}
-                  animationDuration={1200}
-                >
-                  {chartData.map((_, i) => (
-                    <Cell key={i} fill={PALETTE[i % PALETTE.length]} stroke="none" />
-                  ))}
-                </Pie>
-                <Tooltip content={<CustomTooltip />} />
-                <Legend 
-                  verticalAlign="bottom" 
-                  height={36} 
-                  iconType="circle"
-                  formatter={(v) => <span style={{ color: 'var(--text-secondary)', fontSize: '0.75rem', fontWeight: 600 }}>{v}</span>} 
-                />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-
-          <div className="glass-panel" style={{ padding: 'var(--card-p)', minHeight: 450 }}>
-            <h2 style={{ fontSize: '0.85rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--text-muted)', marginBottom: 24 }}>
-              {reportType === 'workflow' ? 'Workflow Efficiency' : 'Outcome Comparison'}
-            </h2>
-            <ResponsiveContainer width="100%" height={350}>
-              <BarChart data={reportType === 'workflow' ? funnelData : chartData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-                <XAxis dataKey="name" tick={{ fill: 'var(--text-muted)', fontSize: 11, fontWeight: 600 }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fill: 'var(--text-muted)', fontSize: 11 }} axisLine={false} tickLine={false} />
-                <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(99,102,241,0.04)' }} />
-                <Bar 
-                  dataKey="value" 
-                  radius={[6, 6, 0, 0]} 
-                  barSize={40}
-                  animationDuration={1500}
-                >
-                  {(reportType === 'workflow' ? funnelData : chartData).map((_, i) => (
-                    <Cell key={i} fill={PALETTE[i % PALETTE.length]} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-      )}
-
-      {/* Admin Comparison Section for Superadmin */}
-      {user?.role === 'superadmin' && adminStats && adminStats.length > 0 && (
-        <div style={{ marginTop: 32 }}>
-          <h2 style={{ fontSize: '1rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--text-primary)', marginBottom: 24 }}>
-            Admin Performance Comparison
-          </h2>
-          <div className="grid-2">
-            <div className="glass-panel" style={{ padding: 'var(--card-p)', minHeight: 450 }}>
-              <h3 style={{ fontSize: '0.85rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 24 }}>
-                Leads Generated
-              </h3>
-              <ResponsiveContainer width="100%" height={350}>
-                <BarChart data={adminStats} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-                  <XAxis dataKey="name" tick={{ fill: 'var(--text-muted)', fontSize: 11, fontWeight: 600 }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fill: 'var(--text-muted)', fontSize: 11 }} axisLine={false} tickLine={false} />
-                  <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(99,102,241,0.04)' }} />
-                  <Bar dataKey="leads" name="Leads" radius={[6, 6, 0, 0]} barSize={40} animationDuration={1500}>
-                    {adminStats.map((_, i) => <Cell key={i} fill={PALETTE[i % PALETTE.length]} />)}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
+        <>
+          {/* Summary pills */}
+          {!loading && stats && (
+            <div className="grid-stats" style={{ marginBottom: 20 }}>
+              {summaryPills.map(p => (
+                <div key={p.label} className="glass-panel" style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: 4, borderTop: `4px solid ${p.color}` }}>
+                  <span style={{ fontSize: '0.65rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{p.label}</span>
+                  <span style={{ fontWeight: 900, fontSize: '1.4rem', color: 'var(--text-primary)', lineHeight: 1 }}>{p.value}</span>
+                </div>
+              ))}
             </div>
-            <div className="glass-panel" style={{ padding: 'var(--card-p)', minHeight: 450 }}>
-              <h3 style={{ fontSize: '0.85rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 24 }}>
-                Total Revenue
-              </h3>
-              <ResponsiveContainer width="100%" height={350}>
-                <PieChart>
-                  <Pie
-                    data={adminStats}
-                    nameKey="name"
-                    dataKey="totalLeadAmount"
-                    cx="50%" cy="50%" innerRadius={80} outerRadius={125} paddingAngle={5} animationDuration={1200}
-                  >
-                    {adminStats.map((_, i) => <Cell key={i} fill={PALETTE[i % PALETTE.length]} stroke="none" />)}
-                  </Pie>
-                  <Tooltip content={<CustomTooltip />} />
-                  <Legend verticalAlign="bottom" height={36} iconType="circle" formatter={(v) => <span style={{ color: 'var(--text-secondary)', fontSize: '0.75rem', fontWeight: 600 }}>{v}</span>} />
-                </PieChart>
-              </ResponsiveContainer>
+          )}
+
+          {/* Charts */}
+          {loading ? (
+            <div className="grid-2">
+              {[0, 1].map(i => (
+                <div key={i} className="glass-panel" style={{ height: 380, padding: 'var(--card-p)' }}>
+                  <div className="skeleton" style={{ height: 14, width: '40%', marginBottom: 20 }} />
+                  <div className="skeleton" style={{ height: 300 }} />
+                </div>
+              ))}
             </div>
-          </div>
-        </div>
+          ) : chartData.length === 0 ? (
+            <div className="glass-panel" style={{ padding: '80px 40px', textAlign: 'center' }}>
+              <BarChart2 size={64} style={{ opacity: 0.08, margin: '0 auto 20px', display: 'block' }} />
+              <h3 style={{ marginBottom: 8 }}>No data to display</h3>
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>No contacts have been disposed for this selection yet.</p>
+            </div>
+          ) : (
+            <div className="grid-2">
+              {/* Main Chart Area */}
+              <div className="glass-panel" style={{ padding: 'var(--card-p)', minHeight: 450 }}>
+                <h2 style={{ fontSize: '0.85rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--text-muted)', marginBottom: 24, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  {reportType === 'workflow' ? 'Disposition Funnel' : 'Success Distribution'}
+                </h2>
+                <ResponsiveContainer width="100%" height={350}>
+                  <PieChart>
+                    <Pie
+                      data={chartData}
+                      cx="50%" cy="50%"
+                      innerRadius={80} outerRadius={125}
+                      paddingAngle={5}
+                      dataKey="value"
+                      animationBegin={0}
+                      animationDuration={1200}
+                    >
+                      {chartData.map((_, i) => (
+                        <Cell key={i} fill={PALETTE[i % PALETTE.length]} stroke="none" />
+                      ))}
+                    </Pie>
+                    <Tooltip content={<CustomTooltip />} />
+                    <Legend 
+                      verticalAlign="bottom" 
+                      height={36} 
+                      iconType="circle"
+                      formatter={(v) => <span style={{ color: 'var(--text-secondary)', fontSize: '0.75rem', fontWeight: 600 }}>{v}</span>} 
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+
+              <div className="glass-panel" style={{ padding: 'var(--card-p)', minHeight: 450 }}>
+                <h2 style={{ fontSize: '0.85rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--text-muted)', marginBottom: 24 }}>
+                  {reportType === 'workflow' ? 'Workflow Efficiency' : 'Outcome Comparison'}
+                </h2>
+                <ResponsiveContainer width="100%" height={350}>
+                  <BarChart data={reportType === 'workflow' ? funnelData : chartData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                    <XAxis dataKey="name" tick={{ fill: 'var(--text-muted)', fontSize: 11, fontWeight: 600 }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fill: 'var(--text-muted)', fontSize: 11 }} axisLine={false} tickLine={false} />
+                    <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(99,102,241,0.04)' }} />
+                    <Bar 
+                      dataKey="value" 
+                      radius={[6, 6, 0, 0]} 
+                      barSize={40}
+                      animationDuration={1500}
+                    >
+                      {(reportType === 'workflow' ? funnelData : chartData).map((_, i) => (
+                        <Cell key={i} fill={PALETTE[i % PALETTE.length]} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          )}
+
+          {/* Admin Comparison Section for Superadmin */}
+          {user?.role === 'superadmin' && adminStats && adminStats.length > 0 && (
+            <div style={{ marginTop: 32 }}>
+              <h2 style={{ fontSize: '1rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--text-primary)', marginBottom: 24 }}>
+                Admin Performance Comparison
+              </h2>
+              <div className="grid-2">
+                <div className="glass-panel" style={{ padding: 'var(--card-p)', minHeight: 450 }}>
+                  <h3 style={{ fontSize: '0.85rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 24 }}>
+                    Leads Generated
+                  </h3>
+                  <ResponsiveContainer width="100%" height={350}>
+                    <BarChart data={adminStats} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                      <XAxis dataKey="name" tick={{ fill: 'var(--text-muted)', fontSize: 11, fontWeight: 600 }} axisLine={false} tickLine={false} />
+                      <YAxis tick={{ fill: 'var(--text-muted)', fontSize: 11 }} axisLine={false} tickLine={false} />
+                      <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(99,102,241,0.04)' }} />
+                      <Bar dataKey="leads" name="Leads" radius={[6, 6, 0, 0]} barSize={40} animationDuration={1500}>
+                        {adminStats.map((_, i) => <Cell key={i} fill={PALETTE[i % PALETTE.length]} />)}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="glass-panel" style={{ padding: 'var(--card-p)', minHeight: 450 }}>
+                  <h3 style={{ fontSize: '0.85rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 24 }}>
+                    Total Revenue
+                  </h3>
+                  <ResponsiveContainer width="100%" height={350}>
+                    <PieChart>
+                      <Pie
+                        data={adminStats}
+                        nameKey="name"
+                        dataKey="totalLeadAmount"
+                        cx="50%" cy="50%" innerRadius={80} outerRadius={125} paddingAngle={5} animationDuration={1200}
+                      >
+                        {adminStats.map((_, i) => <Cell key={i} fill={PALETTE[i % PALETTE.length]} stroke="none" />)}
+                      </Pie>
+                      <Tooltip content={<CustomTooltip />} />
+                      <Legend verticalAlign="bottom" height={36} iconType="circle" formatter={(v) => <span style={{ color: 'var(--text-secondary)', fontSize: '0.75rem', fontWeight: 600 }}>{v}</span>} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
