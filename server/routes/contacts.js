@@ -33,6 +33,22 @@ async function getAccessibleContactsQuery(user, filters = {}, includeDeleted = f
 router.get('/', verify, authorize(['superadmin', 'admin', 'tl', 'agent']), async (req, res) => {
   try {
     const { disposition, agentId, tlId, search, batchId, page, limit } = req.query;
+
+    // Restrict agents from viewing all contacts directly without search term
+    if (req.user.role === 'agent' && (!disposition || disposition === 'all') && (!search || !search.trim())) {
+      if (page) {
+        return res.json({
+          contacts: [],
+          total: 0,
+          page: parseInt(page) || 1,
+          limit: parseInt(limit) || 50,
+          pages: 0,
+          totalLeadValue: 0
+        });
+      } else {
+        return res.json([]);
+      }
+    }
     const filters = {};
     if (disposition === 'pending') filters.disposition = null;
     else if (disposition) filters.disposition = disposition;
@@ -458,7 +474,7 @@ router.get('/stats', verify, authorize(['superadmin', 'agent', 'tl', 'admin']), 
         return res.json({
           total: 0, pending: 0, lead: 0, appointment: 0, callBack: 0, invalid: 0, hungUp: 0, doNotCall: 0,
           notInterested: 0, languageBarrier: 0,
-          totalLeadAmount: 0, totalAdmins, allLead: 0, allLeadAmount: 0
+          totalLeadAmount: 0, totalAdmins, allLead: 0, allLeadAmount: 0, todayCalls: 0
         });
       }
       if (agentId && agentIds.includes(agentId)) {
@@ -518,6 +534,45 @@ router.get('/stats', verify, authorize(['superadmin', 'agent', 'tl', 'admin']), 
     const s = statsArray[0] || {};
     const totalAdmins = await prisma.user.count({ where: { role: 'admin', isDeleted: false } });
 
+    // Calculate total calls done today (real-time per day)
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date();
+    todayEnd.setHours(23, 59, 59, 999);
+
+    const todayWhere = {
+      isDeleted: false,
+      disposedAt: {
+        gte: todayStart,
+        lte: todayEnd
+      }
+    };
+
+    if (req.user.role === 'agent') {
+      todayWhere.assignedTo = userId;
+    } else if (req.user.role === 'tl') {
+      const agents = await prisma.user.findMany({ where: { tlId: userId } });
+      const agentIds = agents.map(a => a.id);
+      if (agentId && agentIds.includes(agentId)) {
+        todayWhere.assignedTo = agentId;
+      } else {
+        todayWhere.assignedTo = { in: agentIds };
+      }
+    } else if (req.user.role === 'admin') {
+      todayWhere.adminId = userId;
+      if (agentId) {
+        todayWhere.assignedTo = agentId;
+      }
+    } else { // superadmin
+      if (agentId) {
+        todayWhere.assignedTo = agentId;
+      }
+    }
+
+    const todayCallsCount = await prisma.contact.count({
+      where: todayWhere
+    });
+
     res.json({
       total: s.total || 0,
       pending: s.pending || 0,
@@ -533,7 +588,8 @@ router.get('/stats', verify, authorize(['superadmin', 'agent', 'tl', 'admin']), 
       totalLeadAmount: s.totalleadamount || 0,
       totalAdmins,
       allLead: s.alllead || 0,
-      allLeadAmount: s.allleadamount || 0
+      allLeadAmount: s.allleadamount || 0,
+      todayCalls: todayCallsCount || 0
     });
   } catch (err) {
     console.error('Stats error:', err);

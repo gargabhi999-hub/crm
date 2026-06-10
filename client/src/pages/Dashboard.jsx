@@ -185,6 +185,7 @@ const Dashboard = () => {
   const primaryCards = stats ? [
     { title: 'Total Contacts', value: stats.total || 0, subtext: 'In system', icon: Users, accent: '#6366f1' },
     { title: 'Pending Queue', value: stats.pending || 0, subtext: 'Awaiting disposition', icon: Clock, accent: '#f59e0b' },
+    { title: 'Calls Today', value: stats.todayCalls || 0, subtext: 'Real-time calls today', icon: PhoneCall, accent: '#06b6d4' },
     { title: 'Total Leads', value: stats.allLead || 0, subtext: 'All acquired leads', icon: Star, accent: '#3b82f6' },
     { title: 'Total Revenue', value: `₹${(stats.allLeadAmount || 0).toLocaleString()}`, subtext: 'Expected lead value', icon: TrendingUp, accent: '#0ea5e9' },
     { title: 'Total Converted Leads', value: stats.lead || 0, subtext: 'Successfully closed', icon: Star, accent: '#10b981' },

@@ -65,6 +65,7 @@ const Contacts = ({ filterType }) => {
       setLoading(true);
 
       const isAdmin = user?.role === 'admin' || user?.role === 'superadmin';
+      const isAgent = user?.role === 'agent';
       const isAllContacts = !filterType || filterType === 'all';
       const hasNoFilters = !selectedTl && !selectedAgent && !debouncedSearchTerm;
 
@@ -81,7 +82,7 @@ const Contacts = ({ filterType }) => {
         }
       }
 
-      if (isAdmin && isAllContacts && hasNoFilters) {
+      if ((isAdmin || isAgent) && isAllContacts && hasNoFilters) {
         setContacts([]);
         setTotalRecords(0);
         setTotalPages(1);
@@ -306,11 +307,11 @@ const Contacts = ({ filterType }) => {
             <p style={{ color: 'var(--text-muted)' }}>{error}</p>
             <button className="btn btn-primary" style={{ marginTop: 20 }} onClick={fetchContacts}>Retry Connection</button>
           </div>
-        ) : (user?.role === 'admin' || user?.role === 'superadmin') && (!filterType || filterType === 'all') && !selectedTl && !selectedAgent && !debouncedSearchTerm ? (
+        ) : (user?.role === 'admin' || user?.role === 'superadmin' || user?.role === 'agent') && (!filterType || filterType === 'all') && !selectedTl && !selectedAgent && !debouncedSearchTerm ? (
           <div className="glass-panel" style={{ padding: '60px 40px', textAlign: 'center', gridColumn: '1 / -1' }}>
             <Search size={40} style={{ color: 'var(--primary)', marginBottom: 16, opacity: 0.8 }} />
-            <h3>Please search or apply a filter</h3>
-            <p style={{ color: 'var(--text-muted)' }}>Contacts will be shown once you apply a filter or use the search bar.</p>
+            <h3>Please search to find contacts</h3>
+            <p style={{ color: 'var(--text-muted)' }}>{user?.role === 'agent' ? 'Contacts allocated to you will be shown once you use the search bar.' : 'Contacts will be shown once you apply a filter or use the search bar.'}</p>
           </div>
         ) : filtered.length === 0 ? (
           <div className="glass-panel" style={{ padding: '60px 40px', textAlign: 'center', gridColumn: '1 / -1' }}>

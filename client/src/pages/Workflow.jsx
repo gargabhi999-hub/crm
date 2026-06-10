@@ -66,8 +66,11 @@ const Workflow = () => {
       const res = await api.get(url);
       setData(res.data);
       if (!res.data?.contact) {
-        const allRes = await api.get('/contacts');
-        setEmptyStateContacts(allRes.data);
+        const [apptsRes, cbsRes] = await Promise.all([
+          api.get('/contacts?disposition=Appointment'),
+          api.get('/contacts?disposition=CallBack')
+        ]);
+        setEmptyStateContacts([...(apptsRes.data || []), ...(cbsRes.data || [])]);
         setCustomer360(null);
       } else {
         setEmptyStateContacts(null);

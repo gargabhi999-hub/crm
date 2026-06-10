@@ -107,6 +107,7 @@ const SuperAdminDashboard = () => {
   const overviewCards = stats ? [
     { title: 'Total Contacts', value: stats.total || 0, subtext: 'In system', icon: Users, accent: '#6366f1' },
     { title: 'Pending Queue', value: stats.pending || 0, subtext: 'Awaiting disposition', icon: Clock, accent: '#f59e0b' },
+    { title: 'Calls Today', value: stats.todayCalls || 0, subtext: 'Real-time calls today', icon: PhoneCall, accent: '#06b6d4' },
     { title: 'Total Admins', value: stats.totalAdmins || 0, subtext: 'Active admin accounts', icon: Shield, accent: '#ec4899' },
   ] : [];
 
@@ -158,7 +159,7 @@ const SuperAdminDashboard = () => {
         <div className="sa-main-content">
           {/* TOP CARDS */}
           <div className="sa-section-title">Platform Overview</div>
-          <div className="sa-grid-3">
+          <div className="sa-grid-4">
             {overviewCards.map((c, i) => <SuperStatCard key={i} {...c} delay={i * 50} />)}
           </div>
 
