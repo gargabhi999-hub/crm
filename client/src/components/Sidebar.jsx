@@ -26,12 +26,13 @@ const Sidebar = ({ isOpen, onClose }) => {
     { path: '/workflow', icon: PhoneCall, label: 'Agent Workflow', roles: ['agent'] },
     { path: '/users', icon: Users, label: 'User Management', roles: ['admin'] },
     { path: '/upload', icon: Upload, label: 'Data Import', roles: ['admin', 'tl'] },
-    { path: '/contacts', icon: Database, label: 'All Contacts', roles: ['admin', 'tl'] },
+    { path: '/contacts', icon: Database, label: 'All Contacts', roles: ['admin', 'tl', 'agent'] },
     { path: '/leads', icon: Star, label: 'Lead Tracking' },
     { path: '/appointments', icon: Calendar, label: 'Appointments' },
     { path: '/callbacks', icon: Clock, label: 'Callbacks' },
     { path: '/hungup', icon: PhoneOff, label: 'Hung Up Calls', roles: ['admin', 'tl'] },
     { path: '/reports', icon: BarChart2, label: 'Reports', roles: ['admin', 'tl'] },
+    { path: '/agent-logs', icon: Clock, label: 'Agent Logs', roles: ['admin'] },
   ];
 
   const filteredItems = navItems.filter(item => !item.roles || item.roles.includes(role) || (role === 'superadmin' && item.roles.includes('admin')));

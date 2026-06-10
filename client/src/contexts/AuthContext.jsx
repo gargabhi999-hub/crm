@@ -8,13 +8,21 @@ export const useAuth = () => useContext(AuthContext);
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [activeBreak, setActiveBreak] = useState(null);
 
-  const logout = () => {
+  const logout = React.useCallback(async () => {
+    if (localStorage.getItem('crm_token')) {
+      try {
+        await api.post('/agent-logs/logout');
+      } catch (e) {
+        console.error('Failed to log out session on server', e);
+      }
+    }
     localStorage.removeItem('crm_token');
     localStorage.removeItem('crm_user');
     localStorage.removeItem('crm_login_time');
     setUser(null);
-  };
+  }, []);
 
   const checkSession = React.useCallback(() => {
     const loginTime = localStorage.getItem('crm_login_time');
@@ -24,9 +32,27 @@ export const AuthProvider = ({ children }) => {
 
       if (elapsed >= twoHours) {
         console.log('Session expired due to 2h limit');
-        logout();
-        window.location.href = '/login?expired=true';
+        logout().then(() => {
+          window.location.href = '/login?expired=true';
+        });
       }
+    }
+  }, [logout]);
+
+  const initSession = React.useCallback(async () => {
+    try {
+      const res = await api.post('/agent-logs/session-init');
+      const session = res.data;
+      if (session.activeBreakType && session.activeBreakStart) {
+        setActiveBreak({
+          type: session.activeBreakType,
+          startTime: session.activeBreakStart
+        });
+      } else {
+        setActiveBreak(null);
+      }
+    } catch (e) {
+      console.error('Failed to initialize agent session:', e);
     }
   }, []);
 
@@ -49,6 +75,63 @@ export const AuthProvider = ({ children }) => {
     const interval = setInterval(checkSession, 30000);
     return () => clearInterval(interval);
   }, [checkSession]);
+
+  // Handle active session initialization on login/user change
+  useEffect(() => {
+    if (user && user.role === 'agent') {
+      initSession();
+    } else {
+      setActiveBreak(null);
+    }
+  }, [user, initSession]);
+
+  // Client-side 7 minutes inactivity logout and ping throttling
+  useEffect(() => {
+    if (!user || user.role !== 'agent') return;
+
+    let inactivityTimer;
+    let lastPing = Date.now();
+    const INACTIVITY_LIMIT = 7 * 60 * 1000; // 7 minutes
+    const PING_INTERVAL = 30 * 1000; // 30 seconds
+
+    const resetInactivity = () => {
+      // If user is currently on break, do not count inactivity
+      if (activeBreak) {
+        if (inactivityTimer) clearTimeout(inactivityTimer);
+        return;
+      }
+
+      if (inactivityTimer) clearTimeout(inactivityTimer);
+      inactivityTimer = setTimeout(() => {
+        console.log('Logging out due to inactivity...');
+        logout().then(() => {
+          window.location.href = '/login?expired=true';
+        });
+      }, INACTIVITY_LIMIT);
+
+      const now = Date.now();
+      if (now - lastPing > PING_INTERVAL) {
+        lastPing = now;
+        api.post('/agent-logs/ping').catch(err => {
+          console.error('Failed to send activity ping', err);
+        });
+      }
+    };
+
+    resetInactivity();
+
+    const events = ['mousedown', 'keydown', 'scroll', 'click', 'touchstart'];
+    events.forEach(event => {
+      window.addEventListener(event, resetInactivity);
+    });
+
+    return () => {
+      if (inactivityTimer) clearTimeout(inactivityTimer);
+      events.forEach(event => {
+        window.removeEventListener(event, resetInactivity);
+      });
+    };
+  }, [user, activeBreak, logout]);
 
   const login = async (username, password) => {
     try {
@@ -115,7 +198,10 @@ export const AuthProvider = ({ children }) => {
     login,
     logout,
     updateUser,
-    isAuthenticated: !!user
+    isAuthenticated: !!user,
+    activeBreak,
+    setActiveBreak,
+    initSession
   };
 
   return (

@@ -187,7 +187,8 @@ router.post('/:id/dispose', verify, authorize(['agent']), async (req, res) => {
 
     const DISP_LABELS = {
       'Lead': 'Lead', 'Appointment': 'Appointment', 'CallNotAnswered': 'Call Not Answered',
-      'HungUp': 'Hung Up', 'Invalid': 'Invalid / Wrong No.', 'DoNotCall': 'Do Not Call', 'CallBack': 'Call Back'
+      'HungUp': 'Hung Up', 'Invalid': 'Invalid / Wrong No.', 'DoNotCall': 'Do Not Call', 'CallBack': 'Call Back',
+      'NotInterested': 'Not Interested', 'LanguageBarrier': 'Language Barrier'
     };
     
     const dispositionLabel = DISP_LABELS[disposition] || disposition;
@@ -456,6 +457,7 @@ router.get('/stats', verify, authorize(['superadmin', 'agent', 'tl', 'admin']), 
         const totalAdmins = await prisma.user.count({ where: { role: 'admin', isDeleted: false } });
         return res.json({
           total: 0, pending: 0, lead: 0, appointment: 0, callBack: 0, invalid: 0, hungUp: 0, doNotCall: 0,
+          notInterested: 0, languageBarrier: 0,
           totalLeadAmount: 0, totalAdmins, allLead: 0, allLeadAmount: 0
         });
       }
@@ -500,8 +502,11 @@ router.get('/stats', verify, authorize(['superadmin', 'agent', 'tl', 'admin']), 
         COUNT(CASE WHEN disposition = 'Appointment' THEN 1 END)::int as appointment,
         COUNT(CASE WHEN disposition = 'CallBack' THEN 1 END)::int as callback,
         COUNT(CASE WHEN disposition = 'Invalid' THEN 1 END)::int as invalid,
-        COUNT(CASE WHEN disposition IN ('HungUp', 'CallNotAnswered') AND rechurn_count >= 3 THEN 1 END)::int as hungup,
+        COUNT(CASE WHEN disposition = 'HungUp' AND rechurn_count >= 3 THEN 1 END)::int as hungup,
+        COUNT(CASE WHEN disposition = 'CallNotAnswered' AND rechurn_count >= 3 THEN 1 END)::int as callnotanswered,
         COUNT(CASE WHEN disposition = 'DoNotCall' THEN 1 END)::int as donotcall,
+        COUNT(CASE WHEN disposition = 'NotInterested' THEN 1 END)::int as notinterested,
+        COUNT(CASE WHEN disposition = 'LanguageBarrier' THEN 1 END)::int as languagebarrier,
         COALESCE(SUM(CASE WHEN disposition = 'Lead' AND status = 'Converted' THEN lead_amount END), 0)::float as totalleadamount,
         COUNT(CASE WHEN disposition = 'Lead' THEN 1 END)::int as alllead,
         COALESCE(SUM(CASE WHEN disposition = 'Lead' THEN lead_amount END), 0)::float as allleadamount
@@ -521,7 +526,10 @@ router.get('/stats', verify, authorize(['superadmin', 'agent', 'tl', 'admin']), 
       callBack: s.callback || 0,
       invalid: s.invalid || 0,
       hungUp: s.hungup || 0,
+      callNotAnswered: s.callnotanswered || 0,
       doNotCall: s.donotcall || 0,
+      notInterested: s.notinterested || 0,
+      languageBarrier: s.languagebarrier || 0,
       totalLeadAmount: s.totalleadamount || 0,
       totalAdmins,
       allLead: s.alllead || 0,

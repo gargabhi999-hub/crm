@@ -20,8 +20,29 @@ model User {
   isDeleted    Boolean   @default(false)
   createdAt    DateTime? @default(now()) @map("created_at")
   updatedAt    DateTime? @updatedAt @map("updated_at")
+  agentWorkLogs AgentWorkLog[]
 
   @@map("users")
+}
+
+model AgentWorkLog {
+  id               String    @id @default(uuid()) @map("_id")
+  userId           String    @map("user_id")
+  loginAt          DateTime  @default(now()) @map("login_at")
+  logoutAt         DateTime? @map("logout_at")
+  lastActiveAt     DateTime  @default(now()) @map("last_active_at")
+  lunchDuration    Int       @default(0) @map("lunch_duration")
+  bioDuration      Int       @default(0) @map("bio_duration")
+  teaDuration      Int       @default(0) @map("tea_duration")
+  activeBreakType  String?   @map("active_break_type")
+  activeBreakStart DateTime? @map("active_break_start")
+  totalWorkTime    Int       @default(0) @map("total_work_time")
+
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([loginAt])
+  @@map("agent_work_logs")
 }
 
 model Contact {

@@ -17,6 +17,8 @@ const DISPS = [
   { key: 'HungUp', label: 'Hung Up', color: '#f43f5e', badgeClass: 'badge-danger' },
   { key: 'Invalid', label: 'Invalid / Wrong No.', color: '#ef4444', badgeClass: 'badge-danger' },
   { key: 'DoNotCall', label: 'Do Not Call', color: '#ef4444', badgeClass: 'badge-danger' },
+  { key: 'NotInterested', label: 'Not Interested', color: '#ef4444', badgeClass: 'badge-danger' },
+  { key: 'LanguageBarrier', label: 'Language Barrier', color: '#3b82f6', badgeClass: 'badge-primary' },
   { key: 'CallBack', label: 'Call Back', color: '#06b6d4', badgeClass: 'badge-cyan' },
 ];
 
@@ -391,6 +393,8 @@ const Workflow = () => {
               if (normLabel.includes('hung up')) return { color: '#f43f5e', bgColor: 'rgba(244, 63, 94, 0.1)', border: '#f43f5e' };
               if (normLabel.includes('invalid') || normLabel.includes('wrong')) return { color: '#ef4444', bgColor: 'rgba(239, 68, 68, 0.1)', border: '#ef4444' };
               if (normLabel.includes('do not call') || normLabel.includes('dnc')) return { color: '#b91c1c', bgColor: 'rgba(185, 28, 28, 0.1)', border: '#b91c1c' };
+              if (normLabel.includes('not interested')) return { color: '#ef4444', bgColor: 'rgba(239, 68, 68, 0.1)', border: '#ef4444' };
+              if (normLabel.includes('language barrier')) return { color: '#3b82f6', bgColor: 'rgba(59, 130, 246, 0.1)', border: '#3b82f6' };
               if (normLabel.includes('call back')) return { color: '#06b6d4', bgColor: 'rgba(6, 182, 212, 0.1)', border: '#06b6d4' };
               if (normLabel.includes('requeued')) return { color: '#3b82f6', bgColor: 'rgba(59, 130, 246, 0.1)', border: '#3b82f6' };
               if (normLabel.includes('callback')) return { color: '#06b6d4', bgColor: 'rgba(6, 182, 212, 0.1)', border: '#06b6d4' };

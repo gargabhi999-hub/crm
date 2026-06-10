@@ -15,6 +15,8 @@ const DISPS = [
   { key: 'HungUp',          label: 'Hung Up',           color: '#f43f5e' },
   { key: 'Invalid',         label: 'Invalid / Wrong No.', color: '#ef4444' },
   { key: 'DoNotCall',       label: 'Do Not Call',       color: '#64748b' },
+  { key: 'NotInterested',    label: 'Not Interested',    color: '#ef4444' },
+  { key: 'LanguageBarrier',  label: 'Language Barrier',  color: '#3b82f6' },
   { key: 'CallBack',        label: 'Call Back',         color: '#06b6d4' },
 ];
 

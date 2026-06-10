@@ -5,9 +5,10 @@ import api from '../utils/api';
 import {
   Users, PhoneCall, Star, Calendar, Clock,
   XCircle, TrendingUp, Database, RefreshCw, PhoneOff,
-  AlertCircle, ArrowUpRight, Activity, Zap, Trash2, Settings, Save, X
+  AlertCircle, ArrowUpRight, Activity, Zap, Trash2, Settings, Save, X, Coffee
 } from 'lucide-react';
 import SuperAdminDashboard from './SuperAdminDashboard';
+import BreakTimerOverlay from '../components/BreakTimerOverlay';
 
 /* ─────────────────────────────────────────
    SKELETON LOADER
@@ -81,12 +82,35 @@ const SectionLabel = ({ icon: Icon, label, accent = '#2563eb' }) => (
    MAIN DASHBOARD
 ───────────────────────────────────────── */
 const Dashboard = () => {
-  const { user, updateUser } = useAuth();
+  const { user, updateUser, activeBreak, setActiveBreak } = useAuth();
   const { socket } = useSocket();
   const [stats, setStats] = useState(null);
   const [queues, setQueues] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+
+  const handleStartBreak = async (type) => {
+    try {
+      const res = await api.post('/agent-logs/start-break', { breakType: type });
+      setActiveBreak({
+        type: type,
+        startTime: res.data.activeBreakStart || new Date().toISOString()
+      });
+    } catch (err) {
+      console.error('Failed to start break:', err);
+      alert(err.response?.data?.error || 'Failed to start break');
+    }
+  };
+
+  const handleEndBreak = async () => {
+    try {
+      await api.post('/agent-logs/end-break');
+      setActiveBreak(null);
+    } catch (err) {
+      console.error('Failed to end break:', err);
+      alert(err.response?.data?.error || 'Failed to end break');
+    }
+  };
 
   // Admin Settings State
   const [showAdminSettings, setShowAdminSettings] = useState(false);
@@ -178,8 +202,11 @@ const Dashboard = () => {
 
   const negativeCards = stats ? [
     { title: 'Invalid / Wrong No.', value: stats.invalid || 0, subtext: 'Bad contact info', icon: AlertCircle, accent: '#f97316' },
-    { title: 'Call Not Answered / Hung Up', value: stats.hungUp || 0, subtext: 'Max attempts reached', icon: PhoneOff, accent: '#ef4444' },
+    { title: 'Call Not Answered', value: stats.callNotAnswered || 0, subtext: 'Max attempts reached', icon: PhoneOff, accent: '#f59e0b' },
+    { title: 'Hung Up', value: stats.hungUp || 0, subtext: 'Max attempts reached', icon: PhoneOff, accent: '#f43f5e' },
     { title: 'Do Not Call', value: stats.doNotCall || 0, subtext: 'Excluded contacts', icon: XCircle, accent: '#64748b' },
+    { title: 'Not Interested', value: stats.notInterested || 0, subtext: 'Not interested in offer', icon: XCircle, accent: '#ef4444' },
+    { title: 'Language Barrier', value: stats.languageBarrier || 0, subtext: 'Language barrier', icon: PhoneOff, accent: '#3b82f6' },
   ] : [];
 
   const skeletonCount = loading ? 9 : 0;
@@ -248,6 +275,59 @@ const Dashboard = () => {
           )}
         </div>
       </div>
+
+      {/* ── BREAK TIMER CONTROLS FOR AGENTS ── */}
+      {!loading && user?.role === 'agent' && (
+        <div className="glass-panel" style={{ padding: '22px', borderRadius: 20, marginBottom: 24, background: 'rgba(255, 255, 255, 0.72)', border: '1px solid rgba(255, 255, 255, 0.85)', boxShadow: '0 8px 30px -10px rgba(0,0,0,0.07)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+            <div style={{ width: 28, height: 28, borderRadius: 8, background: 'rgba(99, 102, 241, 0.1)', color: '#6366f1', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Coffee size={14} strokeWidth={2.5} />
+            </div>
+            <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Break Control Panel</span>
+          </div>
+          <h3 style={{ fontSize: '1.05rem', fontWeight: 800, color: '#1f2937', margin: '0 0 6px 0' }}>Need a Break?</h3>
+          <p style={{ fontSize: '0.82rem', color: '#6b7280', margin: '0 0 16px 0', fontWeight: 500 }}>
+            Select one of the allocated breaks below. Starting a break locks your screen and pauses the activity tracker.
+          </p>
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+            <button
+              onClick={() => handleStartBreak('lunch')}
+              className="btn btn-outline"
+              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 18px', borderRadius: 12, fontWeight: 700, borderColor: '#f59e0b', color: '#d97706' }}
+              onMouseEnter={e => { e.currentTarget.style.background = '#fef3c7'; }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+            >
+              <Coffee size={15} />
+              Lunch Break (30m)
+            </button>
+            <button
+              onClick={() => handleStartBreak('bio')}
+              className="btn btn-outline"
+              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 18px', borderRadius: 12, fontWeight: 700, borderColor: '#10b981', color: '#059669' }}
+              onMouseEnter={e => { e.currentTarget.style.background = '#ecfdf5'; }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+            >
+              <Activity size={15} />
+              Bio Break (10m)
+            </button>
+            <button
+              onClick={() => handleStartBreak('tea')}
+              className="btn btn-outline"
+              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 18px', borderRadius: 12, fontWeight: 700, borderColor: '#3b82f6', color: '#2563eb' }}
+              onMouseEnter={e => { e.currentTarget.style.background = '#eff6ff'; }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+            >
+              <Clock size={15} />
+              Tea Break (15m)
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── BREAK TIMER COUNTDOWN OVERLAY ── */}
+      {activeBreak && (
+        <BreakTimerOverlay activeBreak={activeBreak} onEndBreak={handleEndBreak} />
+      )}
 
       {/* ── PRIMARY KPI SECTION ── */}
       {loading ? (

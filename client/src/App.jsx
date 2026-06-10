@@ -15,6 +15,7 @@ import HungUp from './pages/HungUp';
 import Layout from './components/Layout';
 import AppointmentNotifier from './components/AppointmentNotifier';
 import DueTaskModal from './components/DueTaskModal';
+import AgentLogs from './pages/AgentLogs';
 
 // Protect routes based on authentication
 const ProtectedRoute = ({ children }) => {
@@ -59,6 +60,7 @@ function App() {
             <Route path="/callbacks" element={<MyCallbacks />} />
             <Route path="/hungup" element={<HungUp />} />
             <Route path="/reports" element={<Reports />} />
+            <Route path="/agent-logs" element={<AgentLogs />} />
           </Route>
         </Route>
       </Routes>

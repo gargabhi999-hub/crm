@@ -126,6 +126,8 @@ const Reports = () => {
     { name: 'Invalid',      value: stats.invalid || 0 },
     { name: 'Call Back',    value: stats.callBack || 0 },
     { name: 'DNC',          value: stats.doNotCall || 0 },
+    { name: 'Not Interested', value: stats.notInterested || 0 },
+    { name: 'Lang Barrier',  value: stats.languageBarrier || 0 },
   ].filter(d => d.value > 0) : [
     { name: 'Leads',        value: stats.lead || 0 },
     { name: 'Appointments', value: stats.appointment || 0 },

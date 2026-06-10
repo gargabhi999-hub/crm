@@ -10,6 +10,8 @@ const DISP_LABELS = {
   Invalid: 'Invalid / Wrong No.',
   DoNotCall: 'Do Not Call',
   CallBack: 'Call Back',
+  NotInterested: 'Not Interested',
+  LanguageBarrier: 'Language Barrier',
 };
 
 router.get('/download', verify, authorize(['superadmin', 'admin', 'tl', 'agent']), async (req, res) => {

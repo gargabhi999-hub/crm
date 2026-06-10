@@ -142,6 +142,57 @@ authRouter.post('/login', async (req, res) => {
     };
     const token = sign(tokenPayload);
 
+    // Close dangling agent sessions and start a new one
+    if (user.role === 'agent') {
+      try {
+        const danglingSessions = await prisma.agentWorkLog.findMany({
+          where: {
+            userId: user.id,
+            logoutAt: null
+          }
+        });
+        for (const session of danglingSessions) {
+          const logoutAt = new Date();
+          const loginAt = new Date(session.loginAt);
+          let lunchDuration = session.lunchDuration;
+          let bioDuration = session.bioDuration;
+          let teaDuration = session.teaDuration;
+          if (session.activeBreakType && session.activeBreakStart) {
+            const breakStart = new Date(session.activeBreakStart);
+            const durationSeconds = Math.max(0, Math.floor((logoutAt - breakStart) / 1000));
+            if (session.activeBreakType === 'lunch') lunchDuration += durationSeconds;
+            if (session.activeBreakType === 'bio') bioDuration += durationSeconds;
+            if (session.activeBreakType === 'tea') teaDuration += durationSeconds;
+          }
+          const totalSessionTime = Math.max(0, Math.floor((logoutAt - loginAt) / 1000));
+          const totalWorkTime = Math.max(0, totalSessionTime - (lunchDuration + bioDuration + teaDuration));
+          await prisma.agentWorkLog.update({
+            where: { id: session.id },
+            data: {
+              logoutAt,
+              lunchDuration,
+              bioDuration,
+              teaDuration,
+              activeBreakType: null,
+              activeBreakStart: null,
+              totalWorkTime
+            }
+          });
+        }
+
+        await prisma.agentWorkLog.create({
+          data: {
+            userId: user.id,
+            loginAt: new Date(),
+            lastActiveAt: new Date()
+          }
+        });
+        console.log(`🔑 Login: Started new work session for agent ${user.id}`);
+      } catch (logErr) {
+        console.error('⚠️ Failed to create login work log:', logErr.message);
+      }
+    }
+
     res.cookie('crm_session', token, {
       httpOnly: true,
       sameSite: 'Lax',
@@ -501,6 +552,7 @@ const apiRouter = express.Router();
 // Mount Auth & User Router
 apiRouter.use('/auth', authRouter);
 apiRouter.use('/users', usersRouter);
+apiRouter.use('/agent-logs', require('./routes/agent-logs'));
 
 // Mount Lead-Service Routers
 apiRouter.use('/contacts', require('./routes/contacts'));
@@ -585,6 +637,44 @@ async function checkCallbacks() {
   } catch (err) { console.error('Callback worker error:', err.message); }
 }
 
+async function checkInactiveSessions() {
+  try {
+    const now = new Date();
+    const idleLimitMs = 7 * 60 * 1000; // 7 minutes
+    const thresholdTime = new Date(now.getTime() - idleLimitMs);
+
+    // Find all active agent sessions that are NOT on a break and are idle for >7 mins
+    const inactiveSessions = await prisma.agentWorkLog.findMany({
+      where: {
+        logoutAt: null,
+        activeBreakType: null,
+        lastActiveAt: {
+          lt: thresholdTime
+        }
+      }
+    });
+
+    for (const session of inactiveSessions) {
+      const logoutAt = new Date(session.lastActiveAt.getTime() + idleLimitMs);
+      const loginAt = new Date(session.loginAt);
+      const totalSessionTime = Math.max(0, Math.floor((logoutAt - loginAt) / 1000));
+      const totalBreaks = session.lunchDuration + session.bioDuration + session.teaDuration;
+      const totalWorkTime = Math.max(0, totalSessionTime - totalBreaks);
+
+      await prisma.agentWorkLog.update({
+        where: { id: session.id },
+        data: {
+          logoutAt,
+          totalWorkTime
+        }
+      });
+      console.log(`⏰ Background Worker Auto-Logout: Closed session ${session.id} for user ${session.userId} due to 7m inactivity.`);
+    }
+  } catch (err) {
+    console.error('❌ [checkInactiveSessions worker error]:', err.message);
+  }
+}
+
 // --- Start Monolithic Server ---
 async function start() {
   // Sync Prisma Schema
@@ -596,6 +686,7 @@ async function start() {
     // Start background check interval workers
     setInterval(checkAppointments, 10000);
     setInterval(checkCallbacks, 10000);
+    setInterval(checkInactiveSessions, 30000);
   });
 
   // Seed default superadmin
