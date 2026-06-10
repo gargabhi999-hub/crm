@@ -292,7 +292,7 @@ const Login = () => {
 
       {/* Modern minimal clean footer */}
       <footer className="login-footer-bar">
-        <span>© Copyrights 2026, Nexus - Spike Marketing Solution. All rights reserved.</span>
+        <span>© Copyrights 2026, Nexus - Spike Marketing Solutions. All rights reserved.</span>
       </footer>
 
       <style>{`
