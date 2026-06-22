@@ -98,3 +98,7 @@ temp/
 
 # Scratch scripts
 scratch/
+
+# Local Git remote credentials config scripts
+gitinit.bat
+gitinit.sh
