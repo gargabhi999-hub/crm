@@ -7,6 +7,53 @@ const { triggerConversionEmail } = require('../shared/triggerConversionEmail');
 const { resolveUserNamesForRecords } = require('../shared/userResolver');
 const axios = require('axios');
 
+function buildSqlWhere(whereQuery, params = []) {
+  const clauses = [];
+  
+  for (const [key, value] of Object.entries(whereQuery)) {
+    if (value === undefined) continue;
+
+    let colName = key;
+    if (key === 'isDeleted') colName = 'is_deleted';
+    else if (key === 'assignedTo') colName = 'assigned_to';
+    else if (key === 'adminId') colName = 'admin_id';
+    else if (key === 'batchId') colName = 'batch_id';
+    else if (key === 'disposition') colName = 'disposition';
+    else if (key === 'status') colName = 'status';
+
+    if (value === null) {
+      clauses.push(`${colName} IS NULL`);
+    } else if (typeof value === 'object' && value !== null) {
+      if (value.in) {
+        if (value.in.length === 0) {
+          clauses.push('1 = 0');
+        } else {
+          const placeHolders = value.in.map(v => {
+            params.push(v);
+            return `$${params.length}`;
+          }).join(', ');
+          clauses.push(`${colName} IN (${placeHolders})`);
+        }
+      } else if (value.not !== undefined) {
+        if (value.not === null) {
+          clauses.push(`${colName} IS NOT NULL`);
+        } else {
+          params.push(value.not);
+          clauses.push(`${colName} <> $${params.length}`);
+        }
+      }
+    } else {
+      params.push(value);
+      clauses.push(`${colName} = $${params.length}`);
+    }
+  }
+
+  return {
+    clause: clauses.length > 0 ? clauses.join(' AND ') : '1 = 1',
+    params
+  };
+}
+
 router.get('/my-leads', verify, authorize(['superadmin', 'agent', 'tl', 'admin']), async (req, res) => {
   try {
     const { search, source, status, page, limit } = req.query;
@@ -25,10 +72,45 @@ router.get('/my-leads', verify, authorize(['superadmin', 'agent', 'tl', 'admin']
 
     if (status && status !== 'all') whereQuery.status = status;
 
-    const [leads, contactLeads] = await Promise.all([
-      prisma.lead.findMany({ where: whereQuery }),
-      prisma.contact.findMany({ where: { ...whereQuery, disposition: 'Lead', isDeleted: false } })
-    ]);
+    let leads = [];
+    let contactLeads = [];
+
+    if (search && search.trim()) {
+      const q = search.trim();
+
+      // Query leads
+      const leadSqlParams = [];
+      const { clause: leadBaseClause, params: leadParams } = buildSqlWhere(whereQuery, leadSqlParams);
+      leadParams.push(`%${q}%`);
+      const leadSearchIdx = leadParams.length;
+      const leadIdsResult = await prisma.$queryRawUnsafe(
+        `SELECT _id as id FROM leads WHERE ${leadBaseClause} AND (remarks ILIKE $${leadSearchIdx} OR agent_name ILIKE $${leadSearchIdx} OR fields::text ILIKE $${leadSearchIdx})`,
+        ...leadParams
+      );
+      const leadIds = leadIdsResult.map(item => item.id);
+
+      // Query contactLeads
+      const contactSqlParams = [];
+      const contactWhere = { ...whereQuery, disposition: 'Lead', isDeleted: false };
+      const { clause: contactBaseClause, params: contactParams } = buildSqlWhere(contactWhere, contactSqlParams);
+      contactParams.push(`%${q}%`);
+      const contactSearchIdx = contactParams.length;
+      const contactIdsResult = await prisma.$queryRawUnsafe(
+        `SELECT _id as id FROM contacts WHERE ${contactBaseClause} AND (remarks ILIKE $${contactSearchIdx} OR agent_name ILIKE $${contactSearchIdx} OR fields::text ILIKE $${contactSearchIdx})`,
+        ...contactParams
+      );
+      const contactIds = contactIdsResult.map(item => item.id);
+
+      [leads, contactLeads] = await Promise.all([
+        leadIds.length > 0 ? prisma.lead.findMany({ where: { id: { in: leadIds } } }) : [],
+        contactIds.length > 0 ? prisma.contact.findMany({ where: { id: { in: contactIds } } }) : []
+      ]);
+    } else {
+      [leads, contactLeads] = await Promise.all([
+        prisma.lead.findMany({ where: whereQuery }),
+        prisma.contact.findMany({ where: { ...whereQuery, disposition: 'Lead', isDeleted: false } })
+      ]);
+    }
 
     const leadContactIds = leads.map(l => l.contactId).filter(Boolean);
     const relatedContacts = await prisma.contact.findMany({
@@ -219,10 +301,45 @@ router.get('/appointments', verify, authorize(['superadmin', 'agent', 'tl', 'adm
       contactsWhereQuery.adminId = req.user._id || req.user.id;
     }
 
-    const [appointments, contactAppts] = await Promise.all([
-      prisma.appointment.findMany({ where: whereQuery }),
-      prisma.contact.findMany({ where: { ...contactsWhereQuery, disposition: 'Appointment' } })
-    ]);
+    let appointments = [];
+    let contactAppts = [];
+
+    if (search && search.trim()) {
+      const q = search.trim();
+
+      // Query appointments
+      const apptSqlParams = [];
+      const { clause: apptBaseClause, params: apptParams } = buildSqlWhere(whereQuery, apptSqlParams);
+      apptParams.push(`%${q}%`);
+      const apptSearchIdx = apptParams.length;
+      const apptIdsResult = await prisma.$queryRawUnsafe(
+        `SELECT _id as id FROM appointments WHERE ${apptBaseClause} AND (remarks ILIKE $${apptSearchIdx} OR agent_name ILIKE $${apptSearchIdx} OR fields::text ILIKE $${apptSearchIdx})`,
+        ...apptParams
+      );
+      const apptIds = apptIdsResult.map(item => item.id);
+
+      // Query contactAppts
+      const contactSqlParams = [];
+      const contactWhere = { ...contactsWhereQuery, disposition: 'Appointment' };
+      const { clause: contactBaseClause, params: contactParams } = buildSqlWhere(contactWhere, contactSqlParams);
+      contactParams.push(`%${q}%`);
+      const contactSearchIdx = contactParams.length;
+      const contactIdsResult = await prisma.$queryRawUnsafe(
+        `SELECT _id as id FROM contacts WHERE ${contactBaseClause} AND (remarks ILIKE $${contactSearchIdx} OR agent_name ILIKE $${contactSearchIdx} OR fields::text ILIKE $${contactSearchIdx})`,
+        ...contactParams
+      );
+      const contactIds = contactIdsResult.map(item => item.id);
+
+      [appointments, contactAppts] = await Promise.all([
+        apptIds.length > 0 ? prisma.appointment.findMany({ where: { id: { in: apptIds } } }) : [],
+        contactIds.length > 0 ? prisma.contact.findMany({ where: { id: { in: contactIds } } }) : []
+      ]);
+    } else {
+      [appointments, contactAppts] = await Promise.all([
+        prisma.appointment.findMany({ where: whereQuery }),
+        prisma.contact.findMany({ where: { ...contactsWhereQuery, disposition: 'Appointment' } })
+      ]);
+    }
 
     const userMapRaw = await resolveUserNamesForRecords([...appointments, ...contactAppts]);
     const userMap = {};
@@ -289,10 +406,45 @@ router.get('/callbacks', verify, authorize(['superadmin', 'agent', 'tl', 'admin'
       contactsWhereQuery.adminId = req.user._id || req.user.id;
     }
 
-    const [callbacks, contactCbs] = await Promise.all([
-      prisma.callback.findMany({ where: whereQuery }),
-      prisma.contact.findMany({ where: { ...contactsWhereQuery, disposition: 'CallBack' } })
-    ]);
+    let callbacks = [];
+    let contactCbs = [];
+
+    if (search && search.trim()) {
+      const q = search.trim();
+
+      // Query callbacks
+      const cbSqlParams = [];
+      const { clause: cbBaseClause, params: cbParams } = buildSqlWhere(whereQuery, cbSqlParams);
+      cbParams.push(`%${q}%`);
+      const cbSearchIdx = cbParams.length;
+      const cbIdsResult = await prisma.$queryRawUnsafe(
+        `SELECT _id as id FROM callbacks WHERE ${cbBaseClause} AND (remarks ILIKE $${cbSearchIdx} OR agent_name ILIKE $${cbSearchIdx} OR fields::text ILIKE $${cbSearchIdx})`,
+        ...cbParams
+      );
+      const cbIds = cbIdsResult.map(item => item.id);
+
+      // Query contactCbs
+      const contactSqlParams = [];
+      const contactWhere = { ...contactsWhereQuery, disposition: 'CallBack' };
+      const { clause: contactBaseClause, params: contactParams } = buildSqlWhere(contactWhere, contactSqlParams);
+      contactParams.push(`%${q}%`);
+      const contactSearchIdx = contactParams.length;
+      const contactIdsResult = await prisma.$queryRawUnsafe(
+        `SELECT _id as id FROM contacts WHERE ${contactBaseClause} AND (remarks ILIKE $${contactSearchIdx} OR agent_name ILIKE $${contactSearchIdx} OR fields::text ILIKE $${contactSearchIdx})`,
+        ...contactParams
+      );
+      const contactIds = contactIdsResult.map(item => item.id);
+
+      [callbacks, contactCbs] = await Promise.all([
+        cbIds.length > 0 ? prisma.callback.findMany({ where: { id: { in: cbIds } } }) : [],
+        contactIds.length > 0 ? prisma.contact.findMany({ where: { id: { in: contactIds } } }) : []
+      ]);
+    } else {
+      [callbacks, contactCbs] = await Promise.all([
+        prisma.callback.findMany({ where: whereQuery }),
+        prisma.contact.findMany({ where: { ...contactsWhereQuery, disposition: 'CallBack' } })
+      ]);
+    }
 
     const userMapRaw = await resolveUserNamesForRecords([...callbacks, ...contactCbs]);
     const userMap = {};

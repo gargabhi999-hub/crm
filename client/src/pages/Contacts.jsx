@@ -116,7 +116,7 @@ const Contacts = ({ filterType }) => {
       setTotalLeadValue(res.data.totalLeadValue || 0);
       setError(null);
 
-      if (user?.role === 'admin' && tls.length === 0) {
+      if (isAdmin && tls.length === 0) {
         const usersRes = await api.get('/users');
         const all = usersRes.data;
         setTls(all.filter(u => u.role === 'tl'));
@@ -221,6 +221,46 @@ const Contacts = ({ filterType }) => {
     }
   };
 
+  const handleExportDeletePending = async () => {
+    const agentObj = allAgents.find(a => a._id === selectedAgent);
+    const agentName = agentObj ? agentObj.name : 'Selected Agent';
+    
+    const confirm = window.confirm(`WARNING: This will permanently delete ALL pending (undisposed) contacts assigned to ${agentName} from the database. A CSV copy will be downloaded first. Are you sure you want to proceed?`);
+    if (!confirm) return;
+
+    try {
+      setLoading(true);
+      const res = await api.post('/contacts/export-delete-pending', { agentId: selectedAgent }, { responseType: 'blob' });
+      
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const a = document.createElement('a');
+      a.href = url;
+      const cleanAgentName = agentName.replace(/[^a-zA-Z0-9]/g, '_');
+      const filename = `pending_contacts_${cleanAgentName}_${new Date().toISOString().split('T')[0]}.csv`;
+      a.setAttribute('download', filename);
+      document.body.appendChild(a); a.click(); a.remove();
+      
+      alert('Pending contacts exported and deleted successfully.');
+      setSelectedAgent('');
+      fetchContacts();
+    } catch (err) {
+      console.error(err);
+      if (err.response?.data) {
+        try {
+          const text = await err.response.data.text();
+          const parsed = JSON.parse(text);
+          alert(parsed.error || 'Failed to export and delete pending contacts');
+        } catch {
+          alert('Failed to export and delete pending contacts');
+        }
+      } else {
+        alert('Failed to export and delete pending contacts');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const toggleSelect = (id) =>
     setSelectedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
 
@@ -253,13 +293,13 @@ const Contacts = ({ filterType }) => {
               <Trash2 size={15} /> Wipe All Contacts
             </button>
           )}
-          {user?.role === 'admin' && (
+          {(user?.role === 'admin' || user?.role === 'superadmin') && (
             <button className="btn btn-outline" onClick={toggleSelectAll} style={{ padding: '7px 14px', fontSize: '0.8rem' }}>
               {selectedIds.length === filtered.length ? <CheckSquare size={15} /> : <Square size={15} />} 
               {selectedIds.length === filtered.length ? 'Deselect All' : 'Select All'}
             </button>
           )}
-          {selectedIds.length > 0 && user?.role === 'admin' && (
+          {selectedIds.length > 0 && (user?.role === 'admin' || user?.role === 'superadmin') && (
             <button className="btn btn-danger" onClick={handleBulkDelete} style={{ boxShadow: '0 4px 12px rgba(239,68,68,0.3)' }}>
               <Trash2 size={15} /> Delete Selected ({selectedIds.length})
             </button>
@@ -287,7 +327,7 @@ const Contacts = ({ filterType }) => {
             <Search size={16} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
             <input type="text" className="input-field" placeholder="Search..." style={{ paddingLeft: 42, marginBottom: 0 }} value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
           </div>
-          {user?.role === 'admin' && (
+          {(user?.role === 'admin' || user?.role === 'superadmin') && (
             <>
               <select className="input-field" style={{ marginBottom: 0, minWidth: 150 }} value={selectedTl} onChange={e => setSelectedTl(e.target.value)}>
                 <option value="">All TLs</option>
@@ -297,6 +337,28 @@ const Contacts = ({ filterType }) => {
                 <option value="">All Agents</option>
                 {filteredAgents.map(a => <option key={a._id} value={a._id}>{a.name}</option>)}
               </select>
+              {selectedAgent && (
+                <button 
+                  className="btn btn-danger animate-fade-in" 
+                  onClick={handleExportDeletePending} 
+                  style={{ 
+                    marginBottom: 0, 
+                    padding: '10px 18px', 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    gap: 8,
+                    background: 'linear-gradient(135deg, #ef4444 0%, #b91c1c 100%)',
+                    boxShadow: '0 6px 20px rgba(239, 68, 68, 0.25)',
+                    border: 'none',
+                    borderRadius: 'var(--r-md)',
+                    transition: 'all 0.2s ease',
+                    fontSize: '0.8rem',
+                    fontWeight: '700'
+                  }}
+                >
+                  <Trash2 size={16} /> Export & Delete Pending
+                </button>
+              )}
             </>
           )}
         </div>
@@ -339,13 +401,13 @@ const Contacts = ({ filterType }) => {
 
             return (
               <div key={contact._id} className="glass-panel contact-card" style={{ padding: 16, position: 'relative', border: isSel ? '2px solid var(--primary)' : undefined }}>
-                {user?.role === 'admin' && (
+                {(user?.role === 'admin' || user?.role === 'superadmin') && (
                   <div style={{ position: 'absolute', top: 12, left: 12, zIndex: 10 }}>
                     <input type="checkbox" checked={isSel} onChange={() => toggleSelect(contact._id)} style={{ width: 18, height: 18, cursor: 'pointer', accentColor: 'var(--primary)' }} />
                   </div>
                 )}
                 
-                <div style={{ display: 'flex', justifySelf: 'space-between', marginBottom: 12, paddingLeft: user?.role === 'admin' ? 28 : 0 }}>
+                <div style={{ display: 'flex', justifySelf: 'space-between', marginBottom: 12, paddingLeft: (user?.role === 'admin' || user?.role === 'superadmin') ? 28 : 0 }}>
                   <div style={{ flex: 1 }}>
                     <h3 style={{ fontSize: '0.95rem', fontWeight: 700, margin: 0 }}>{mainName}</h3>
                     <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}><PhoneCall size={13} /> {phone}</span>
@@ -411,7 +473,7 @@ const Contacts = ({ filterType }) => {
                     )}
                   </span>
                   <div style={{ display: 'flex', gap: 8 }}>
-                    {user?.role === 'admin' && <button className="btn btn-ghost btn-icon" onClick={() => handleDelete(contact._id)}><Trash2 size={15} style={{ color: 'var(--danger)' }} /></button>}
+                    {(user?.role === 'admin' || user?.role === 'superadmin') && <button className="btn btn-ghost btn-icon" onClick={() => handleDelete(contact._id)}><Trash2 size={15} style={{ color: 'var(--danger)' }} /></button>}
                   </div>
                 </div>
               </div>

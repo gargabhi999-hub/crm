@@ -31,6 +31,52 @@ async function getAccessibleContactsQuery(user, filters = {}, includeDeleted = f
   return where;
 }
 
+function buildSqlWhere(whereQuery, params = []) {
+  const clauses = [];
+  
+  for (const [key, value] of Object.entries(whereQuery)) {
+    if (value === undefined) continue;
+
+    let colName = key;
+    if (key === 'isDeleted') colName = 'is_deleted';
+    else if (key === 'assignedTo') colName = 'assigned_to';
+    else if (key === 'adminId') colName = 'admin_id';
+    else if (key === 'batchId') colName = 'batch_id';
+    else if (key === 'disposition') colName = 'disposition';
+
+    if (value === null) {
+      clauses.push(`${colName} IS NULL`);
+    } else if (typeof value === 'object' && value !== null) {
+      if (value.in) {
+        if (value.in.length === 0) {
+          clauses.push('1 = 0');
+        } else {
+          const placeHolders = value.in.map(v => {
+            params.push(v);
+            return `$${params.length}`;
+          }).join(', ');
+          clauses.push(`${colName} IN (${placeHolders})`);
+        }
+      } else if (value.not !== undefined) {
+        if (value.not === null) {
+          clauses.push(`${colName} IS NOT NULL`);
+        } else {
+          params.push(value.not);
+          clauses.push(`${colName} <> $${params.length}`);
+        }
+      }
+    } else {
+      params.push(value);
+      clauses.push(`${colName} = $${params.length}`);
+    }
+  }
+
+  return {
+    clause: clauses.length > 0 ? clauses.join(' AND ') : '1 = 1',
+    params
+  };
+}
+
 router.get('/', verify, authorize(['superadmin', 'admin', 'tl', 'agent']), async (req, res) => {
   try {
     const { disposition, agentId, tlId, search, batchId, page, limit } = req.query;
@@ -73,19 +119,67 @@ router.get('/', verify, authorize(['superadmin', 'admin', 'tl', 'agent']), async
     let whereQuery = await getAccessibleContactsQuery(req.user, filters);
 
     if (search && search.trim()) {
-      let contacts = await prisma.contact.findMany({
-        where: whereQuery,
-        orderBy: { createdAt: 'desc' }
-      });
+      const q = search.trim();
+      const sqlParams = [];
+      const { clause: baseClause, params } = buildSqlWhere(whereQuery, sqlParams);
       
-      const q = search.trim().toLowerCase();
-      contacts = contacts.filter(c => {
-        return (
-          (c.remarks && c.remarks.toLowerCase().includes(q)) ||
-          Object.values(c.fields || {}).some(v => String(v).toLowerCase().includes(q)) ||
-          (c.agentName && c.agentName.toLowerCase().includes(q))
-        );
-      });
+      params.push(`%${q}%`);
+      const searchParamIdx = params.length;
+      
+      const whereClause = `${baseClause} AND (
+        remarks ILIKE $${searchParamIdx} 
+        OR agent_name ILIKE $${searchParamIdx} 
+        OR fields::text ILIKE $${searchParamIdx}
+      )`;
+
+      // Count total matches
+      const countSql = `SELECT COUNT(*)::int as count FROM contacts WHERE ${whereClause}`;
+      const countResult = await prisma.$queryRawUnsafe(countSql, ...params);
+      const total = countResult[0]?.count || 0;
+
+      let contacts = [];
+      const pageNum = parseInt(page) || 1;
+      const limitNum = parseInt(limit) || 50;
+      const skipNum = (pageNum - 1) * limitNum;
+
+      if (page) {
+        const queryParams = [...params];
+        queryParams.push(limitNum);
+        const limitParamIdx = queryParams.length;
+        queryParams.push(skipNum);
+        const offsetParamIdx = queryParams.length;
+
+        const selectSql = `
+          SELECT _id as id FROM contacts 
+          WHERE ${whereClause} 
+          ORDER BY created_at DESC 
+          LIMIT $${limitParamIdx} OFFSET $${offsetParamIdx}
+        `;
+        const idsResult = await prisma.$queryRawUnsafe(selectSql, ...queryParams);
+        const ids = idsResult.map(item => item.id);
+
+        if (ids.length > 0) {
+          contacts = await prisma.contact.findMany({
+            where: { id: { in: ids } },
+            orderBy: { createdAt: 'desc' }
+          });
+        }
+      } else {
+        const selectSql = `
+          SELECT _id as id FROM contacts 
+          WHERE ${whereClause} 
+          ORDER BY created_at DESC
+        `;
+        const idsResult = await prisma.$queryRawUnsafe(selectSql, ...params);
+        const ids = idsResult.map(item => item.id);
+
+        if (ids.length > 0) {
+          contacts = await prisma.contact.findMany({
+            where: { id: { in: ids } },
+            orderBy: { createdAt: 'desc' }
+          });
+        }
+      }
 
       const userMap = await resolveUserNamesForRecords(contacts);
       
@@ -103,18 +197,15 @@ router.get('/', verify, authorize(['superadmin', 'admin', 'tl', 'agent']), async
       });
 
       if (page) {
-        const pageNum = parseInt(page) || 1;
-        const limitNum = parseInt(limit) || 50;
-        const total = contacts.length;
-        const paginatedContacts = contacts.slice((pageNum - 1) * limitNum, pageNum * limitNum);
-        
         let totalLeadValue = 0;
         if (disposition === 'Lead') {
-          totalLeadValue = contacts.reduce((sum, c) => sum + (c.leadAmount || 0), 0);
+          const sumSql = `SELECT SUM(lead_amount)::float as sum FROM contacts WHERE ${whereClause}`;
+          const sumResult = await prisma.$queryRawUnsafe(sumSql, ...params);
+          totalLeadValue = sumResult[0]?.sum || 0;
         }
 
         return res.json({ 
-          contacts: paginatedContacts, 
+          contacts, 
           total, 
           page: pageNum, 
           limit: limitNum, 
@@ -785,6 +876,98 @@ router.get('/queue', verify, authorize(['superadmin', 'agent', 'tl', 'admin']), 
   } catch (err) {
     console.error('Queue route error:', err);
     res.status(500).json({ error: 'Server error' });
+  }
+});
+
+router.post('/export-delete-pending', verify, authorize(['superadmin', 'admin']), async (req, res) => {
+  try {
+    const { agentId } = req.body;
+    if (!agentId) {
+      return res.status(400).json({ error: 'Agent ID is required.' });
+    }
+
+    // Verify agent exists and role is agent
+    const agent = await prisma.user.findFirst({
+      where: { id: agentId, role: 'agent', isDeleted: false }
+    });
+    if (!agent) {
+      return res.status(404).json({ error: 'Agent not found.' });
+    }
+
+    // If logged-in user is admin, make sure the agent belongs to this admin
+    if (req.user.role === 'admin') {
+      const loggedInAdminId = req.user._id || req.user.id;
+      if (agent.adminId !== loggedInAdminId) {
+        return res.status(403).json({ error: 'Unauthorized: Agent does not belong to your admin account.' });
+      }
+    }
+
+    // Fetch the pending contacts for this agent
+    const contacts = await prisma.contact.findMany({
+      where: {
+        assignedTo: agentId,
+        OR: [
+          { disposition: null },
+          { disposition: '' }
+        ]
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    if (contacts.length === 0) {
+      return res.status(400).json({ error: 'No pending contacts found for this agent.' });
+    }
+
+    // Generate CSV contents
+    const fieldCols = [...new Set(contacts.flatMap(c => Object.keys(c.fields || {})))];
+    const rows = contacts.map((c, index) => {
+      const row = {
+        'S.No.': index + 1,
+        'Contact ID': c.id,
+        'Batch ID': c.batchId || '',
+        'Agent Name': agent.name || 'Unknown',
+        'Created At': c.createdAt ? new Date(c.createdAt).toLocaleString('en-IN') : '',
+        'Remarks': c.remarks || ''
+      };
+      fieldCols.forEach(col => {
+        row[col] = c.fields?.[col] || '';
+      });
+      return row;
+    });
+
+    const headers = rows.length ? Object.keys(rows[0]) : [];
+    const escapeValue = v => {
+      const s = String(v ?? '');
+      if (s.includes(',') || s.includes('"') || s.includes('\n')) return `"${s.replace(/"/g, '""')}"`;
+      return s;
+    };
+    const csv = [
+      headers.map(escapeValue).join(','),
+      ...rows.map(r => headers.map(h => escapeValue(r[h])).join(','))
+    ].join('\n');
+
+    // Perform permanent deletion from database
+    await prisma.contact.deleteMany({
+      where: {
+        assignedTo: agentId,
+        OR: [
+          { disposition: null },
+          { disposition: '' }
+        ]
+      }
+    });
+
+    const safeAgentName = (agent.name || 'agent').replace(/[^a-zA-Z0-9]/g, '_');
+    res.set({
+      'Content-Type': 'text/csv',
+      'Content-Disposition': `attachment; filename="pending_contacts_${safeAgentName}_${Date.now()}.csv"`,
+      'Access-Control-Expose-Headers': 'Content-Disposition'
+    });
+
+    return res.send(csv);
+  } catch (err) {
+    console.error('Export and delete pending contacts error:', err);
+    res.status(500).json({ error: 'Internal server error during export and delete' });
   }
 });
 

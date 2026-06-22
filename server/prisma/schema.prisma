@@ -82,6 +82,13 @@ model Contact {
   @@index([disposition])
   @@index([appointmentDt])
   @@index([callBackDt])
+  @@index([assignedTo, isDeleted, createdAt])
+  @@index([adminId, isDeleted, createdAt])
+  @@index([assignedTo, isDeleted, queueOrder, createdAt])
+  @@index([assignedTo, disposition, isDeleted, queueOrder, callBackDt])
+  @@index([disposition, isDeleted, createdAt])
+  @@index([status, isDeleted])
+  @@index([disposedAt])
   @@map("contacts")
 }
 
@@ -105,6 +112,8 @@ model Lead {
   @@index([contactId])
   @@index([transactionId])
   @@index([createdAt])
+  @@index([assignedTo, createdAt])
+  @@index([adminId, createdAt])
   @@map("leads")
 }
 
@@ -125,6 +134,8 @@ model Appointment {
   @@index([adminId])
   @@index([contactId])
   @@index([appointmentDt])
+  @@index([assignedTo, appointmentDt])
+  @@index([adminId, appointmentDt])
   @@map("appointments")
 }
 
@@ -147,6 +158,8 @@ model Callback {
   @@index([adminId])
   @@index([contactId])
   @@index([callBackDt])
+  @@index([assignedTo, callBackDt])
+  @@index([adminId, callBackDt])
   @@map("callbacks")
 }
 
