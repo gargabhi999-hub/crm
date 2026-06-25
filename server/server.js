@@ -593,7 +593,8 @@ async function checkAppointments() {
         disposition: 'Appointment',
         appointmentDt: { gte: now, lte: new Date(now.getTime() + 2.5 * 60 * 1000) },
         reminderSent: { not: true }
-      }
+      },
+      take: 50
     });
 
     for (const app of upcoming) {
@@ -620,7 +621,8 @@ async function checkCallbacks() {
         ],
         callBackDt: { gte: now, lte: new Date(now.getTime() + 2.5 * 60 * 1000) },
         cbReminderSent: { not: true }
-      }
+      },
+      take: 50
     });
 
     for (const cb of upcoming) {
@@ -651,7 +653,8 @@ async function checkInactiveSessions() {
         lastActiveAt: {
           lt: thresholdTime
         }
-      }
+      },
+      take: 100
     });
 
     for (const session of inactiveSessions) {

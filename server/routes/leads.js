@@ -107,8 +107,8 @@ router.get('/my-leads', verify, authorize(['superadmin', 'agent', 'tl', 'admin']
       ]);
     } else {
       [leads, contactLeads] = await Promise.all([
-        prisma.lead.findMany({ where: whereQuery }),
-        prisma.contact.findMany({ where: { ...whereQuery, disposition: 'Lead', isDeleted: false } })
+        prisma.lead.findMany({ where: whereQuery, take: 500 }),
+        prisma.contact.findMany({ where: { ...whereQuery, disposition: 'Lead', isDeleted: false }, take: 500 })
       ]);
     }
 
@@ -243,38 +243,33 @@ router.get('/stats', verify, authorize(['superadmin', 'agent', 'tl', 'admin']), 
       whereQuery.adminId = req.user._id || req.user.id;
     }
 
-    const [leads, contactLeads, allLeadsArr, allContactLeads] = await Promise.all([
-      prisma.lead.findMany({ 
+    const [convertedLeadAgg, convertedContactAgg, allLeadAgg, allContactLeadAgg] = await Promise.all([
+      prisma.lead.aggregate({
         where: { ...whereQuery, status: 'Converted' },
-        select: { id: true, contactId: true, leadAmount: true }
+        _count: { id: true },
+        _sum: { leadAmount: true }
       }),
-      prisma.contact.findMany({ 
+      prisma.contact.aggregate({
         where: { ...whereQuery, disposition: 'Lead', status: 'Converted', isDeleted: false },
-        select: { id: true, leadAmount: true }
+        _count: { id: true },
+        _sum: { leadAmount: true }
       }),
-      prisma.lead.findMany({ 
+      prisma.lead.aggregate({
         where: whereQuery,
-        select: { id: true, contactId: true, leadAmount: true }
+        _count: { id: true },
+        _sum: { leadAmount: true }
       }),
-      prisma.contact.findMany({ 
+      prisma.contact.aggregate({
         where: { ...whereQuery, disposition: 'Lead', isDeleted: false },
-        select: { id: true, leadAmount: true }
+        _count: { id: true },
+        _sum: { leadAmount: true }
       })
     ]);
     
-    const leadContactIds = new Set(leads.map(l => l.contactId));
-    const uniqueContactLeads = contactLeads.filter(c => !leadContactIds.has(c.id));
-    
-    const totalLeads = leads.length + uniqueContactLeads.length;
-    const totalAmount = leads.reduce((sum, l) => sum + (parseFloat(l.leadAmount) || 0), 0) +
-                        uniqueContactLeads.reduce((sum, c) => sum + (parseFloat(c.leadAmount) || 0), 0);
-                        
-    const allLeadContactIds = new Set(allLeadsArr.map(l => l.contactId));
-    const uniqueAllContactLeads = allContactLeads.filter(c => !allLeadContactIds.has(c.id));
-    
-    const allLeadsCount = allLeadsArr.length + uniqueAllContactLeads.length;
-    const allLeadsAmount = allLeadsArr.reduce((sum, l) => sum + (parseFloat(l.leadAmount) || 0), 0) +
-                           uniqueAllContactLeads.reduce((sum, c) => sum + (parseFloat(c.leadAmount) || 0), 0);
+    const totalLeads = (convertedLeadAgg._count.id || 0) + (convertedContactAgg._count.id || 0);
+    const totalAmount = (convertedLeadAgg._sum.leadAmount || 0) + (convertedContactAgg._sum.leadAmount || 0);
+    const allLeadsCount = (allLeadAgg._count.id || 0) + (allContactLeadAgg._count.id || 0);
+    const allLeadsAmount = (allLeadAgg._sum.leadAmount || 0) + (allContactLeadAgg._sum.leadAmount || 0);
     
     res.json({ totalLeads, totalAmount, allLeads: allLeadsCount, allLeadsAmount });
   } catch (err) {
@@ -336,8 +331,8 @@ router.get('/appointments', verify, authorize(['superadmin', 'agent', 'tl', 'adm
       ]);
     } else {
       [appointments, contactAppts] = await Promise.all([
-        prisma.appointment.findMany({ where: whereQuery }),
-        prisma.contact.findMany({ where: { ...contactsWhereQuery, disposition: 'Appointment' } })
+        prisma.appointment.findMany({ where: whereQuery, take: 500 }),
+        prisma.contact.findMany({ where: { ...contactsWhereQuery, disposition: 'Appointment' }, take: 500 })
       ]);
     }
 
@@ -441,8 +436,8 @@ router.get('/callbacks', verify, authorize(['superadmin', 'agent', 'tl', 'admin'
       ]);
     } else {
       [callbacks, contactCbs] = await Promise.all([
-        prisma.callback.findMany({ where: whereQuery }),
-        prisma.contact.findMany({ where: { ...contactsWhereQuery, disposition: 'CallBack' } })
+        prisma.callback.findMany({ where: whereQuery, take: 500 }),
+        prisma.contact.findMany({ where: { ...contactsWhereQuery, disposition: 'CallBack' }, take: 500 })
       ]);
     }
 
@@ -757,8 +752,8 @@ router.get('/history/:phone', verify, authorize(['superadmin', 'agent', 'tl', 'a
     }
 
     const [leads, contactLeads] = await Promise.all([
-      prisma.lead.findMany({ where: { ...whereQuery, isDeleted: undefined } }),
-      prisma.contact.findMany({ where: { ...whereQuery, disposition: 'Lead' } })
+      prisma.lead.findMany({ where: { ...whereQuery, isDeleted: undefined }, take: 200 }),
+      prisma.contact.findMany({ where: { ...whereQuery, disposition: 'Lead' }, take: 200 })
     ]);
 
     const userMapRaw = await resolveUserNamesForRecords([...leads, ...contactLeads]);

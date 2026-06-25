@@ -42,7 +42,13 @@ router.post('/', verify, authorize(['admin', 'tl', 'agent']), upload.single('fil
         role: { in: ['agent', 'tl'] }, 
         active: true, 
         isDeleted: false 
-      } 
+      },
+      select: {
+        id: true,
+        name: true,
+        username: true,
+        role: true
+      }
     });
     
     // Safely map users by name, username, and ID.
@@ -66,8 +72,6 @@ router.post('/', verify, authorize(['admin', 'tl', 'agent']), upload.single('fil
     }, {});
 
     const isLead = String(isLeadUpload) === 'true';
-
-    const contacts = [];
     const uploadErrors = [];
 
     // Pre-detect agent column once to optimize loop performance
@@ -75,74 +79,81 @@ router.post('/', verify, authorize(['admin', 'tl', 'agent']), upload.single('fil
       ? Object.keys(records[0]).find(k => k.toLowerCase().includes('agent'))
       : null;
 
-    records.forEach((row, index) => {
-      let assignedId = selectedAgent?.id;
-      let errorReason = null;
+    let totalUploaded = 0;
+    const CHUNK_SIZE = 1000;
 
-      if (agentId === 'multi') {
-        if (agentCol && row[agentCol]) {
-          const agentNameStr = row[agentCol].toString().toLowerCase().trim();
-          const u = userMap[agentNameStr];
-          if (u) {
-            if (u.role === 'tl') {
-              errorReason = `User '${row[agentCol]}' is a Team Leader (only Agents can be assigned contacts).`;
+    for (let i = 0; i < records.length; i += CHUNK_SIZE) {
+      const chunkRecords = records.slice(i, i + CHUNK_SIZE);
+      const contactsChunk = [];
+
+      chunkRecords.forEach((row, chunkIndex) => {
+        const index = i + chunkIndex;
+        let assignedId = selectedAgent?.id;
+        let errorReason = null;
+
+        if (agentId === 'multi') {
+          if (agentCol && row[agentCol]) {
+            const agentNameStr = row[agentCol].toString().toLowerCase().trim();
+            const u = userMap[agentNameStr];
+            if (u) {
+              if (u.role === 'tl') {
+                errorReason = `User '${row[agentCol]}' is a Team Leader (only Agents can be assigned contacts).`;
+              } else {
+                assignedId = u.id;
+              }
             } else {
-              assignedId = u.id;
+              errorReason = `Agent '${row[agentCol]}' not found or inactive.`;
             }
           } else {
-            errorReason = `Agent '${row[agentCol]}' not found or inactive.`;
+            errorReason = 'Agent column missing or empty.';
           }
-        } else {
-          errorReason = 'Agent column missing or empty.';
         }
+
+        if (!assignedId && !errorReason) {
+           errorReason = 'No valid agent assignment.';
+        }
+
+        if (errorReason) {
+          uploadErrors.push({
+            rowNumber: index + 2,
+            name: row.Name || row.name || 'Unknown',
+            phone: row.Phone || row.Mobile || row.phone || row.mobile || 'N/A',
+            error: errorReason
+          });
+          return;
+        }
+        
+        const contactDoc = {
+          assignedTo: assignedId,
+          batchId,
+          adminId: req.user.role === 'admin' ? (req.user._id || req.user.id) : (req.user.adminId ? req.user.adminId : null),
+          fields: row,
+          isDeleted: false,
+          disposition: isLead ? 'Lead' : null,
+          queueOrder: 0
+        };
+
+        if (isLead) {
+          contactDoc.status = row.Status || row.status || 'Converted';
+          contactDoc.leadAmount = Number(row.LeadAmount || row.leadAmount || row.Amount || 0);
+          const transactionId = row.TransactionId || row.transactionId || '';
+          contactDoc.remarks = (row.Remarks || row.remarks || 'Uploaded via Lead Template') + (transactionId ? ` (TXN: ${transactionId})` : '');
+        }
+
+        contactsChunk.push(contactDoc);
+      });
+
+      if (contactsChunk.length > 0) {
+        await prisma.contact.createMany({ data: contactsChunk });
+        totalUploaded += contactsChunk.length;
       }
+    }
 
-      if (!assignedId && !errorReason) {
-         errorReason = 'No valid agent assignment.';
-      }
-
-      if (errorReason) {
-        uploadErrors.push({
-          rowNumber: index + 2,
-          name: row.Name || row.name || 'Unknown',
-          phone: row.Phone || row.Mobile || row.phone || row.mobile || 'N/A',
-          error: errorReason
-        });
-        return;
-      }
-      
-      const contactDoc = {
-        assignedTo: assignedId,
-        batchId,
-        adminId: req.user.role === 'admin' ? (req.user._id || req.user.id) : (req.user.adminId ? req.user.adminId : null),
-        fields: row,
-        isDeleted: false,
-        disposition: isLead ? 'Lead' : null,
-        queueOrder: 0
-      };
-
-      if (isLead) {
-        contactDoc.status = row.Status || row.status || 'Converted';
-        contactDoc.leadAmount = Number(row.LeadAmount || row.leadAmount || row.Amount || 0);
-        const transactionId = row.TransactionId || row.transactionId || '';
-        contactDoc.remarks = (row.Remarks || row.remarks || 'Uploaded via Lead Template') + (transactionId ? ` (TXN: ${transactionId})` : '');
-      }
-
-      contacts.push(contactDoc);
-    });
-
-    if (contacts.length === 0) {
+    if (totalUploaded === 0) {
       if (uploadErrors.length > 0) {
         return res.status(400).json({ success: false, error: 'All records failed to upload.', totalUploaded: 0, totalFailed: uploadErrors.length, uploadErrors });
       }
       return res.status(400).json({ error: 'No valid assignments could be created from the uploaded file.' });
-    }
-
-    // Chunk contact insertions in groups of 1000 to prevent exceeding Postgres parameters limit and connection timeouts
-    const CHUNK_SIZE = 1000;
-    for (let i = 0; i < contacts.length; i += CHUNK_SIZE) {
-      const chunk = contacts.slice(i, i + CHUNK_SIZE);
-      await prisma.contact.createMany({ data: chunk });
     }
     
     await prisma.batch.create({
@@ -150,15 +161,15 @@ router.post('/', verify, authorize(['admin', 'tl', 'agent']), upload.single('fil
         id: batchId,
         name: batchName || `Upload - ${new Date().toLocaleDateString()}`,
         adminId: req.user.role === 'admin' ? (req.user._id || req.user.id) : (req.user.adminId ? req.user.adminId : null),
-        contactCount: contacts.length,
+        contactCount: totalUploaded,
         status: 'uploaded'
       }
     });
 
-    broadcast('batch_uploaded', { batchId, totalUploaded: contacts.length });
+    broadcast('batch_uploaded', { batchId, totalUploaded });
     broadcast('dashboard_update');
 
-    res.json({ success: true, batchId, totalUploaded: contacts.length, totalFailed: uploadErrors.length, uploadErrors });
+    res.json({ success: true, batchId, totalUploaded, totalFailed: uploadErrors.length, uploadErrors });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Upload failed' });

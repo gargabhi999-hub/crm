@@ -190,7 +190,8 @@ router.get('/download', verify, authorize(['superadmin', 'admin', 'tl', 'agent']
       orderBy: [
         { assignedTo: 'asc' },
         { queueOrder: 'asc' }
-      ]
+      ],
+      take: 10000
     });
 
     const assignedUserIds = [...new Set(contacts.map(c => c.assignedTo).filter(Boolean))];

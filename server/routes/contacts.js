@@ -169,6 +169,7 @@ router.get('/', verify, authorize(['superadmin', 'admin', 'tl', 'agent']), async
           SELECT _id as id FROM contacts 
           WHERE ${whereClause} 
           ORDER BY created_at DESC
+          LIMIT 500
         `;
         const idsResult = await prisma.$queryRawUnsafe(selectSql, ...params);
         const ids = idsResult.map(item => item.id);
@@ -258,7 +259,7 @@ router.get('/', verify, authorize(['superadmin', 'admin', 'tl', 'agent']), async
 
       return res.json({ contacts, total, page: pageNum, limit: limitNum, pages: Math.ceil(total / limitNum), totalLeadValue });
     } else {
-      const contactsRaw = await prisma.contact.findMany({ where: whereQuery, orderBy: { createdAt: 'desc' } });
+      const contactsRaw = await prisma.contact.findMany({ where: whereQuery, orderBy: { createdAt: 'desc' }, take: 500 });
       let contacts = contactsRaw;
       const userMap = await resolveUserNamesForRecords(contacts);
 
@@ -561,7 +562,7 @@ router.get('/stats', verify, authorize(['superadmin', 'agent', 'tl', 'admin']), 
       conditions.push(`assigned_to = $${paramCount++}`);
       params.push(userId);
     } else if (req.user.role === 'tl') {
-      const agents = await prisma.user.findMany({ where: { tlId: userId } });
+      const agents = await prisma.user.findMany({ where: { tlId: userId }, select: { id: true } });
       const agentIds = agents.map(a => a.id);
       if (agentIds.length === 0) {
         const totalAdmins = await prisma.user.count({ where: { role: 'admin', isDeleted: false } });
@@ -645,12 +646,12 @@ router.get('/stats', verify, authorize(['superadmin', 'agent', 'tl', 'admin']), 
     if (req.user.role === 'agent') {
       todayWhere.assignedTo = userId;
     } else if (req.user.role === 'tl') {
-      const agents = await prisma.user.findMany({ where: { tlId: userId } });
-      const agentIds = agents.map(a => a.id);
-      if (agentId && agentIds.includes(agentId)) {
+      const tlAgents = await prisma.user.findMany({ where: { tlId: userId }, select: { id: true } });
+      const tlAgentIds = tlAgents.map(a => a.id);
+      if (agentId && tlAgentIds.includes(agentId)) {
         todayWhere.assignedTo = agentId;
       } else {
-        todayWhere.assignedTo = { in: agentIds };
+        todayWhere.assignedTo = { in: tlAgentIds };
       }
     } else if (req.user.role === 'admin') {
       todayWhere.adminId = userId;
@@ -708,9 +709,10 @@ router.get('/agent-calls-summary', verify, authorize(['superadmin', 'admin', 'tl
 
     if (agentIds.length === 0) return res.json([]);
 
-    let conditions = ["is_deleted = false", `assigned_to IN (${agentIds.map(id => `'${id}'`).join(',')})`, "disposed_at IS NOT NULL"];
-    let params = [];
-    let paramCount = 1;
+    const agentPlaceholders = agentIds.map((_, i) => `$${i + 1}`).join(',');
+    let conditions = ["is_deleted = false", `assigned_to IN (${agentPlaceholders})`, "disposed_at IS NOT NULL"];
+    let params = [...agentIds];
+    let paramCount = agentIds.length + 1;
 
     if (fromDate && toDate) {
       const start = new Date(fromDate);
@@ -759,6 +761,7 @@ router.get('/agent-queues', verify, authorize(['superadmin', 'admin', 'tl']), as
 
     if (agentIds.length === 0) return res.json([]);
 
+    const queuePlaceholders = agentIds.map((_, i) => `$${i + 1}`).join(',');
     const rawQueues = await prisma.$queryRawUnsafe(`
       SELECT 
         assigned_to as "agentId",
@@ -768,9 +771,9 @@ router.get('/agent-queues', verify, authorize(['superadmin', 'admin', 'tl']), as
         COUNT(CASE WHEN disposition = 'Appointment' THEN 1 END)::int as appointment,
         COALESCE(SUM(CASE WHEN disposition = 'Lead' AND status = 'Converted' THEN lead_amount END), 0)::float as "totalLeadAmount"
       FROM contacts
-      WHERE is_deleted = false AND assigned_to IN (${agentIds.map(id => `'${id}'`).join(',')})
+      WHERE is_deleted = false AND assigned_to IN (${queuePlaceholders})
       GROUP BY assigned_to
-    `);
+    `, ...agentIds);
 
     const queueMap = {};
     rawQueues.forEach(q => {
@@ -1255,7 +1258,7 @@ router.get('/customer-360/:phone', verify, authorize(['superadmin', 'agent', 'tl
 
     const likePattern = `%${targetNorm}`;
 
-    const [rawContacts, rawLeads, rawCallbacks, rawAppointments, allUsers] = await Promise.all([
+    const [rawContacts, rawLeads, rawCallbacks, rawAppointments] = await Promise.all([
       prisma.$queryRawUnsafe(`
         SELECT _id as id, fields, remarks, status, disposition, 
                lead_amount as "leadAmount", transaction_id as "transactionId", 
@@ -1268,6 +1271,7 @@ router.get('/customer-360/:phone', verify, authorize(['superadmin', 'agent', 'tl
           regexp_replace(fields->>'phone', '\\D', '', 'g') LIKE $1 OR
           regexp_replace(fields->>'Mobile', '\\D', '', 'g') LIKE $1
         )
+        LIMIT 100
       `, likePattern),
       prisma.$queryRawUnsafe(`
         SELECT _id as id, contact_id as "contactId", fields, remarks, status, 
@@ -1279,6 +1283,7 @@ router.get('/customer-360/:phone', verify, authorize(['superadmin', 'agent', 'tl
           regexp_replace(fields->>'Phone', '\\D', '', 'g') LIKE $1 OR
           regexp_replace(fields->>'phone', '\\D', '', 'g') LIKE $1 OR
           regexp_replace(fields->>'Mobile', '\\D', '', 'g') LIKE $1
+        LIMIT 100
       `, likePattern),
       prisma.$queryRawUnsafe(`
         SELECT _id as id, contact_id as "contactId", fields, remarks, 
@@ -1289,6 +1294,7 @@ router.get('/customer-360/:phone', verify, authorize(['superadmin', 'agent', 'tl
           regexp_replace(fields->>'Phone', '\\D', '', 'g') LIKE $1 OR
           regexp_replace(fields->>'phone', '\\D', '', 'g') LIKE $1 OR
           regexp_replace(fields->>'Mobile', '\\D', '', 'g') LIKE $1
+        LIMIT 100
       `, likePattern),
       prisma.$queryRawUnsafe(`
         SELECT _id as id, contact_id as "contactId", fields, remarks, 
@@ -1299,14 +1305,18 @@ router.get('/customer-360/:phone', verify, authorize(['superadmin', 'agent', 'tl
           regexp_replace(fields->>'Phone', '\\D', '', 'g') LIKE $1 OR
           regexp_replace(fields->>'phone', '\\D', '', 'g') LIKE $1 OR
           regexp_replace(fields->>'Mobile', '\\D', '', 'g') LIKE $1
-      `, likePattern),
-      prisma.user.findMany({
-        select: { id: true, name: true, username: true }
-      })
+        LIMIT 100
+      `, likePattern)
     ]);
 
+    const allRecords = [...rawContacts, ...rawLeads, ...rawCallbacks, ...rawAppointments];
+    const assignedToIds = [...new Set(allRecords.map(r => r.assignedTo).filter(Boolean))];
+    const resolvedUsers = assignedToIds.length > 0 ? await prisma.user.findMany({
+      where: { id: { in: assignedToIds } },
+      select: { id: true, name: true, username: true }
+    }) : [];
     const userMap = {};
-    allUsers.forEach(u => {
+    resolvedUsers.forEach(u => {
       userMap[u.id] = u.name || u.username || 'System';
     });
 

@@ -5,7 +5,7 @@
   "description": "Nexus - Microservices Architecture",
   "scripts": {
     "install:all": "npm install && cd client && npm install",
-    "start": "node server/server.js",
+    "start": "node --max-old-space-size=448 server/server.js",
     "postinstall": "prisma generate --schema=server/prisma/schema.prisma"
   },
   "dependencies": {

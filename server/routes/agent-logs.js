@@ -257,7 +257,8 @@ router.get('/admin-logs', verify, authorize(['admin', 'superadmin']), async (req
       },
       orderBy: {
         loginAt: 'desc'
-      }
+      },
+      take: 1000
     });
 
     // Fetch TL names
