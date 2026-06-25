@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useSocket } from '../contexts/SocketContext';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import api from '../utils/api';
 import {
   PhoneCall, Check, Clock, Database, CheckCircle2,
@@ -28,6 +28,7 @@ const Workflow = () => {
   const { user } = useAuth();
   const { socket } = useSocket();
   const location = useLocation();
+  const navigate = useNavigate();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -173,7 +174,11 @@ const Workflow = () => {
             });
             alert('Existing callback updated successfully!');
             setDispForm({ disposition: '', remarks: '', appointmentDt: '', leadAmount: '', callBackDt: '', status: '', statusDetails: '', transactionId: '' });
-            fetchNext();
+            if (location.search) {
+              navigate('/workflow', { replace: true });
+            } else {
+              fetchNext();
+            }
             return;
           }
           // If Cancel, it continues to standard post /dispose (Create New)
@@ -184,7 +189,11 @@ const Workflow = () => {
       
       // Removed blocking alert here; success will be shown via toast async
       setDispForm({ disposition: '', remarks: '', appointmentDt: '', leadAmount: '', callBackDt: '', status: '', statusDetails: '', transactionId: '' });
-      fetchNext();
+      if (location.search) {
+        navigate('/workflow', { replace: true });
+      } else {
+        fetchNext();
+      }
     } catch (err) {
       if (err.response?.status === 409 && err.response?.data?.error === 'EXISTING_LEAD') {
         const targetSection = dispForm.status === 'Call Back' ? 'Callback' : 'Appointment';
@@ -209,7 +218,11 @@ const Workflow = () => {
           try {
             await api.post(`/contacts/${data.contact._id}/dispose`, retryPayload);
             setDispForm({ disposition: '', remarks: '', appointmentDt: '', leadAmount: '', callBackDt: '', status: '', statusDetails: '', transactionId: '' });
-            fetchNext();
+            if (location.search) {
+              navigate('/workflow', { replace: true });
+            } else {
+              fetchNext();
+            }
             return;
           } catch (retryErr) {
             alert('Failed to save redirected task');
@@ -269,7 +282,13 @@ const Workflow = () => {
             <div className="badge badge-primary" style={{ padding: '8px 16px' }}><strong>{total}</strong> Total</div>
             <div className="badge badge-success" style={{ padding: '8px 16px' }}><strong>{disposed}</strong> Disposed</div>
           </div>
-          <button className="btn btn-primary" onClick={() => fetchNext()} style={{ padding: '12px 24px' }}>
+          <button className="btn btn-primary" onClick={() => {
+            if (location.search) {
+              navigate('/workflow', { replace: true });
+            } else {
+              fetchNext();
+            }
+          }} style={{ padding: '12px 24px' }}>
             <RotateCw size={16} /> Refresh Queue
           </button>
         </div>

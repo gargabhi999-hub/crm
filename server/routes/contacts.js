@@ -828,9 +828,16 @@ router.get('/queue', verify, authorize(['superadmin', 'agent', 'tl', 'admin']), 
     let rechurnNum = 1;
     
     if (req.query.contactId) {
-      contact = await prisma.contact.findFirst({
+      const targetContact = await prisma.contact.findFirst({
         where: { id: req.query.contactId, assignedTo: agentId, isDeleted: false }
       });
+      if (targetContact) {
+        const isDisposed = ['Lead', 'Invalid', 'DoNotCall', 'NotInterested', 'LanguageBarrier'].includes(targetContact.disposition) ||
+                           ((targetContact.disposition === 'CallNotAnswered' || targetContact.disposition === 'HungUp') && (targetContact.queueOrder === 999999 || targetContact.rechurnCount >= 3));
+        if (!isDisposed) {
+          contact = targetContact;
+        }
+      }
     }
     
     if (!contact) {
@@ -1180,6 +1187,51 @@ router.post('/:id/requeue', verify, authorize(['superadmin', 'agent', 'tl', 'adm
     res.status(500).json({ error: 'Server error' });
   }
 });
+
+router.post('/bulk-requeue', verify, authorize(['superadmin', 'agent', 'tl', 'admin']), async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!ids || !ids.length) {
+      return res.status(400).json({ error: 'No IDs provided' });
+    }
+
+    const nowStr = new Date().toLocaleString();
+    const remarkToAppend = ` | [Requeued at ${nowStr}]`;
+
+    // Perform bulk update directly in PostgreSQL to concatenate remarks safely
+    const placeholders = ids.map((_, i) => `$${i + 1}`).join(', ');
+    
+    await prisma.$executeRawUnsafe(
+      `UPDATE contacts 
+       SET disposition = NULL, 
+           status = NULL, 
+           lead_amount = NULL, 
+           appointment_dt = NULL, 
+           call_back_dt = NULL, 
+           queue_order = -10,
+           remarks = COALESCE(remarks, '') || $${ids.length + 1}
+       WHERE _id IN (${placeholders})`,
+      ...ids,
+      remarkToAppend
+    );
+
+    // Clean up child tables
+    await Promise.all([
+      prisma.lead.deleteMany({ where: { contactId: { in: ids } } }),
+      prisma.appointment.deleteMany({ where: { contactId: { in: ids } } }),
+      prisma.callback.deleteMany({ where: { contactId: { in: ids } } })
+    ]);
+
+    broadcast('dashboard_update');
+    broadcast('contacts_updated');
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Bulk requeue error:', err);
+    res.status(500).json({ error: 'Server error during bulk requeue' });
+  }
+});
+
 
 router.get('/customer-360/:phone', verify, authorize(['superadmin', 'agent', 'tl', 'admin']), async (req, res) => {
   try {
