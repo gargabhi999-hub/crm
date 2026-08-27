@@ -1,15 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import { X, PhoneCall, Star, Calendar, XCircle, RotateCw } from 'lucide-react';
+import { X, PhoneCall, Star, Calendar, XCircle, RotateCw, Image } from 'lucide-react';
+import api from '../utils/api';
 
 const CallActionModal = ({ lead, onClose, onSubmit }) => {
   const [action, setAction] = useState(null); // 'Lead', 'Followup', 'Not Interested'
+  const [scanning, setScanning] = useState(false);
   const [formData, setFormData] = useState({
     leadAmount: '',
     status: '',
     transactionId: '',
     statusDetails: '',
     callBackDt: '',
-    remarks: ''
+    remarks: '',
+    receiptImage: ''
   });
   const [submitting, setSubmitting] = useState(false);
 
@@ -21,6 +24,56 @@ const CallActionModal = ({ lead, onClose, onSubmit }) => {
   }, []);
 
   if (!lead) return null;
+
+  const handleReceiptUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    e.target.value = '';
+    setScanning(true);
+
+    try {
+      const reader = new FileReader();
+      reader.onloadend = async () => {
+        try {
+          const imageBase64 = reader.result;
+          const res = await api.post('/leads/extract-transaction', { imageBase64 });
+          
+          if (res.data.success && res.data.transactionId) {
+            const txId = res.data.transactionId;
+            const amount = res.data.amount;
+
+            setFormData(p => {
+              let updatedRemarks = p.remarks || '';
+              const prefix = `[Auto-converted via receipt scan] Transaction ID: ${txId}` + (amount ? ` (Amount updated to ₹${amount})` : '');
+              if (!updatedRemarks.includes('[Auto-converted via receipt scan]')) {
+                updatedRemarks = prefix + (updatedRemarks ? ` - ${updatedRemarks}` : '');
+              }
+              return {
+                ...p,
+                status: 'Converted',
+                transactionId: txId,
+                leadAmount: amount || p.leadAmount || '',
+                remarks: updatedRemarks,
+                receiptImage: imageBase64
+              };
+            });
+          } else {
+            alert(res.data.error || 'Failed to extract transaction details from receipt.');
+          }
+        } catch (err) {
+          console.error(err);
+          alert(err.response?.data?.error || 'Error extracting transaction from receipt.');
+        } finally {
+          setScanning(false);
+        }
+      };
+      reader.readAsDataURL(file);
+    } catch (err) {
+      console.error(err);
+      setScanning(false);
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -46,7 +99,8 @@ const CallActionModal = ({ lead, onClose, onSubmit }) => {
       transactionId: '',
       statusDetails: '',
       callBackDt: '',
-      remarks: ''
+      remarks: '',
+      receiptImage: ''
     });
   };
 
@@ -103,6 +157,49 @@ const CallActionModal = ({ lead, onClose, onSubmit }) => {
 
               {action === 'Lead' && (
                 <>
+                  <div className="input-group" style={{ marginBottom: '16px' }}>
+                    <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span>Scan Payment Receipt (Optional)</span>
+                      {scanning && (
+                        <span style={{ fontSize: '0.8rem', color: 'var(--violet)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <RotateCw className="animate-spin" size={12} /> Scanning...
+                        </span>
+                      )}
+                    </label>
+                    <div style={{ display: 'flex', gap: '8px', width: '100%' }}>
+                      <input 
+                        type="file" 
+                        accept="image/*" 
+                        id="modal-receipt-upload" 
+                        style={{ display: 'none' }} 
+                        onChange={handleReceiptUpload} 
+                        disabled={scanning} 
+                      />
+                      <label 
+                        htmlFor="modal-receipt-upload" 
+                        className="btn" 
+                        style={{ 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          justifyContent: 'center', 
+                          gap: '8px', 
+                          cursor: scanning ? 'not-allowed' : 'pointer', 
+                          width: '100%', 
+                          background: 'var(--bg-surface-2)', 
+                          border: '1px dashed var(--border)',
+                          padding: '10px',
+                          borderRadius: '12px',
+                          color: 'var(--text-primary)',
+                          transition: 'all 0.2s',
+                          fontSize: '0.9rem'
+                        }}
+                      >
+                        <Image size={16} style={{ color: 'var(--violet)' }} />
+                        {formData.receiptImage ? 'Receipt Selected (Change)' : 'Choose Receipt Image'}
+                      </label>
+                    </div>
+                  </div>
+
                   <div className="input-group">
                     <label>Lead Amount (₹) *</label>
                     <input type="number" className="input-field" value={formData.leadAmount} onChange={e => setFormData(p => ({...p, leadAmount: e.target.value}))} required autoFocus />

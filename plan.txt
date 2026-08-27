@@ -1,0 +1,179 @@
+================================================================================
+                     SPIKE CRM (NEXUS) - COMPLETE WORKING PLAN
+================================================================================
+
+This document details the architectural layout, role-based permission system, and
+the functionality of every single module and page inside the Spike CRM system.
+
+--------------------------------------------------------------------------------
+1. ARCHITECTURE & SERVICES LAYOUT
+--------------------------------------------------------------------------------
+* Backend Engine: Node.js & Express.js monolithic server, handling all HTTP REST
+  endpoints and WebSocket connections.
+* Database ORM: Prisma ORM querying a PostgreSQL relational database.
+* Real-Time Gateway: Socket.io server integrated directly with the HTTP server
+  to broadcast events (such as "batch_uploaded", "lead_disposed", and
+  "dashboard_update") to connected client sessions in real time.
+* External API Integrations:
+  - Groq Llama Vision OCR: Used to read and verify transaction screenshots.
+  - Brevo SMTP Relay: Sends automated email transaction receipts to customers.
+
+--------------------------------------------------------------------------------
+2. ROLE-BASED ACCESS CONTROL (RBAC)
+--------------------------------------------------------------------------------
+The software supports four distinct roles:
+1. Agent:
+   - Calling workflow interface (Workflow Queue).
+   - Manages personal Leads, Callbacks, Appointments, and HungUp logs.
+   - Session activity check-ins (heartbeat ping, start/end break controls).
+2. Team Leader (TL):
+   - Access to team dashboard and analytics.
+   - Monitors assigned Agents' performance, queues, and statistics.
+   - Views team member logs, leads, and callbacks.
+3. Admin:
+   - Full control over the tenant users (Create/Edit/Deactivate/Delete).
+   - Access to database upload utility (import CSV/Excel templates, delete batches).
+   - Generates system reports.
+   - Monitors all agent work logs.
+4. Super Admin:
+   - Access to global dashboard (SuperAdminDashboard).
+   - Database wipe operations (bulk delete, wipe contacts, wipe database logs).
+   - Creates and manages Admin accounts.
+
+--------------------------------------------------------------------------------
+3. DETAILED PAGE-BY-PAGE FUNCTIONALITY
+--------------------------------------------------------------------------------
+
+[1] Login (Login.jsx)
+- Endpoint: POST /api/auth/login
+- Features:
+  - Validates username and password.
+  - Generates secure JWT token stored in a HTTP-only cookie.
+  - Automatically identifies if the logging user is an Agent.
+  - Closes any outstanding dangling work sessions for that Agent from previous days
+    (calculating break times and total work times to prevent skewed logs).
+  - Starts a new AgentWorkLog record for the fresh session.
+
+[2] Central Dashboard (Dashboard.jsx)
+- Endpoints: GET /api/contacts/stats, GET /api/contacts/agent-queues, etc.
+- Features:
+  - Real-time display of key stats (Total Contacts, Pending, Converted Leads,
+    Appointments, Callbacks, Invalid Numbers, and Total Converted Amounts).
+  - Dynamic interactive charts (built with Recharts) illustrating weekly/monthly progress.
+  - Break Controller: Allows agents to toggle break states (Lunch Break, Tea Break,
+    Bio Break). Tracks active break duration in real time via timers.
+  - Call Alerts: Real-time pop-up notification reminders when callbacks or
+    appointments are due.
+  - TL/Admin Filters: Team leaders and Admins can filter the entire dashboard stats
+    for a specific agent or team wide.
+
+[3] Calling Workflow (Workflow.jsx)
+- Endpoints: GET /api/leads-management/workflow/next, POST /api/leads-management/workflow/dispose
+- Features:
+  - The core calling screen for agents.
+  - Priority Queue Resolution: Automatically pulls the highest priority call in the
+    following order:
+      1. Due Callbacks (already past schedule).
+      2. Rechurns (previous Call Not Answered / Hung Up calls, max 3 attempts).
+      3. Standard Pending contacts (sorted by queue order).
+  - Customer Data Card: Displays all custom properties from the uploaded file (Name,
+    Phone, Email, City, custom columns) dynamically in a readable grid.
+  - Action Dispositions: Agent can dispose of the call with one click:
+    - Lead (Converted): Prompts for Transaction ID, amount, and notes. Creates a
+      Lead record, logs conversion date, and wipes it from active calling list.
+    - Appointment: Prompts for Date/Time. Schedules a calendar appointment.
+    - CallBack: Prompts for Callback Date/Time. Schedules callback.
+    - Call Not Answered / Hung Up: Increments call attempt counter. Re-inserts
+      contact back into the queue with a lower priority. (Cap at 3 attempts).
+    - Other Dispositions (Invalid, Do Not Call, Not Interested, Language Barrier):
+      Permanently flags the call and moves it out of the active queue.
+
+[4] Contacts Directory (Contacts.jsx)
+- Endpoints: GET /api/contacts, POST /api/contacts/bulk-delete, etc.
+- Features:
+  - Tabulated list of all contacts in the database.
+  - Multi-filter search (by batch ID, phone number, source, disposition, and agent).
+  - Pagination to ensure low memory consumption.
+  - Bulk Actions (Admin only):
+    - Bulk Re-assignment: Change assignment of selected contacts to another agent.
+    - Bulk Delete: Wipe selected contacts.
+    - Re-churn Contacts: Send selected contacts back to queue.
+  - Add Contact: Manual form to create single contacts.
+
+[5] Leads List (MyLeads.jsx)
+- Endpoints: GET /api/leads/my-leads, GET /api/leads/stats
+- Features:
+  - View list of all converted leads.
+  - Track payment status, transaction amounts, and custom remarks.
+  - Features search by name, phone, or batch ID.
+  - Displays total lead counts and conversion amounts.
+
+[6] Callbacks Manager (MyCallbacks.jsx)
+- Endpoints: GET /api/leads/callbacks, GET /api/contacts/:id/check-callback
+- Features:
+  - List of callbacks assigned to the agent.
+  - Color-coded badges indicating call urgency (Overdue, Due Today, Scheduled).
+  - Quick action buttons to immediately open the contact in the Calling Workflow.
+
+[7] Appointments Manager (MyAppointments.jsx)
+- Endpoints: GET /api/leads/appointments
+- Features:
+  - View of all scheduled customer appointments.
+  - Filter by date range and agent.
+  - Status updates (Scheduled, Met, Not Interested, Cancelled).
+
+[8] Hung Up Logs (HungUp.jsx)
+- Features:
+  - Dedicated repository showing contacts whose calls disconnected abruptly.
+  - Allows agents to quickly review and re-queue these contacts.
+
+[9] Data Import Engine (Upload.jsx)
+- Endpoints: POST /api/upload, GET /api/upload/batches, GET /api/upload/template
+- Features:
+  - Excel (.xlsx) / CSV file reader.
+  - Template Download: Downloads templates dynamically pre-populated with active
+    agents (under Reference tab) and allowed statuses.
+  - Batch Log: Lists all upload sessions with timestamps, user metrics, upload
+    counts, and statuses.
+  - Bulk Delete Batches: Allows admins to delete an entire batch and its associated
+    contacts in one click.
+
+[10] User Management (Users.jsx)
+- Endpoints: GET /api/users, POST /api/users, PUT /api/users/:id
+- Features:
+  - Administrators can view, create, edit, deactivate, or delete users.
+  - Configures roles (Agent, TL, Admin, Super Admin).
+  - Assigns Team Leaders to Agents.
+  - Toggles active/inactive state to revoke server access instantly.
+
+[11] Agent Productivity Audit Logs (AgentLogs.jsx)
+- Endpoint: GET /api/agent-logs/admin-logs
+- Features:
+  - Complete timesheet of all agent work logs.
+  - Shows Login Date/Time, Logout Date/Time, Last Activity timestamp.
+  - Breaks Breakdown: Tracks exact duration spent on Lunch, Tea, and Bio breaks.
+  - Total Work Time: Computes pure active hours (Total Time minus breaks).
+
+[12] Super Admin Panel (SuperAdminDashboard.jsx)
+- Features:
+  - Infrastructure level overview.
+  - Super-level database wipe commands (Wipe database, wipe hungup contacts, etc.).
+
+[13] Report Export Generator (Reports.jsx)
+- Endpoint: GET /api/reports/download
+- Features:
+  - Generates custom CSV reports.
+  - Filters by date ranges, specific dispositions, and agents.
+
+--------------------------------------------------------------------------------
+4. SYSTEM STABILITY & MEMORY GUARANTEES
+--------------------------------------------------------------------------------
+To run reliably on Render's free tier (512MB RAM limit), the CRM uses:
+* Memory Allocation: node is executed with `--max-old-space-size=448` to avoid OOM.
+* Chunked File Parsing: The XLSX/CSV importer processes records in batches of 1000.
+  It writes chunks immediately to PostgreSQL to prevent double-array memory leaks.
+* Database aggregations: Stats counts and sums are computed in SQL (Postgres side)
+  instead of loading rows into Node JS memory.
+* hard limits on queries: All fetches are bounded (e.g. `take: 500` or `take: 1000`).
+
+================================================================================
