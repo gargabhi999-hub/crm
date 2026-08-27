@@ -231,6 +231,8 @@ usersRouter.get('/', verify, authorize(['superadmin', 'admin']), async (req, res
         tlId: true,
         adminId: true,
         receiverMail: true,
+        smtpGmail: true,
+        smtpPassword: true,
         active: true,
         isDeleted: true,
         createdAt: true,
@@ -273,7 +275,7 @@ usersRouter.get('/my-agents', verify, authorize('tl'), async (req, res) => {
 
 usersRouter.post('/', verify, authorize(['superadmin', 'admin']), async (req, res) => {
   try {
-    const { username, password, name, role, tlId } = req.body;
+    const { username, password, name, role, tlId, receiverMail, smtpGmail, smtpPassword } = req.body;
     
     if (role === 'admin' && req.user.role !== 'superadmin') {
       return res.status(403).json({ error: 'Only Super Admin can create Admin users' });
@@ -309,6 +311,12 @@ usersRouter.post('/', verify, authorize(['superadmin', 'admin']), async (req, re
       active: true,
       isDeleted: false,
     };
+
+    if (role === 'admin') {
+      userData.receiverMail = receiverMail ? receiverMail.trim() : null;
+      userData.smtpGmail = smtpGmail ? smtpGmail.trim() : null;
+      userData.smtpPassword = smtpPassword ? smtpPassword.trim() : null;
+    }
     
     const result = await prisma.user.create({ data: userData });
     const { password: _, ...userWithoutPassword } = result;
@@ -348,6 +356,8 @@ usersRouter.put('/:id', verify, authorize(['superadmin', 'admin']), async (req, 
     if (tlId !== undefined) updateData.tlId = tlId ? tlId : null;
     if (password) updateData.password = await bcrypt.hash(password, 10);
     if (req.body.receiverMail !== undefined) updateData.receiverMail = req.body.receiverMail.trim() || null;
+    if (req.body.smtpGmail !== undefined) updateData.smtpGmail = req.body.smtpGmail.trim() || null;
+    if (req.body.smtpPassword !== undefined) updateData.smtpPassword = req.body.smtpPassword.trim() || null;
 
     if (existingUser.role === 'tl' && !!active === false && existingUser.active === true) {
       const agentsUnderTL = await prisma.user.findMany({ 
@@ -429,21 +439,64 @@ usersRouter.delete('/:id', verify, authorize(['superadmin']), async (req, res) =
 const mailRouter = express.Router();
 mailRouter.post('/send', async (req, res) => {
   try {
-    const { to, subject, html, companyName, attachments } = req.body;
+    const { to, subject, html, companyName, attachments, adminId } = req.body;
     if (!to) return res.status(400).json({ error: 'Receiver email is required.' });
 
+    let activeTransporter = transporter;
+    let senderEmail = BREVO_SENDER || 'noreply@nexus.crm';
+    let isGmailAuth = false;
+    let gmailAuthError = null;
+
+    if (adminId) {
+      try {
+        const adminUser = await prisma.user.findUnique({ where: { id: adminId } });
+        if (adminUser && adminUser.smtpGmail && adminUser.smtpPassword) {
+          activeTransporter = nodemailer.createTransport({
+            service: 'gmail',
+            auth: {
+              user: adminUser.smtpGmail.trim(),
+              pass: adminUser.smtpPassword.trim()
+            }
+          });
+          senderEmail = adminUser.smtpGmail.trim();
+          isGmailAuth = true;
+        }
+      } catch (dbErr) {
+        console.error('Failed to resolve custom SMTP credentials:', dbErr);
+      }
+    }
+
     const mailOptions = {
-      from: `"${companyName || 'NEXUS'}" <${BREVO_SENDER || 'noreply@nexus.crm'}>`,
+      from: `"${companyName || 'NEXUS'}" <${senderEmail}>`,
       to,
       subject: subject || 'New Lead Converted',
       html: html || '<p>A new lead has been successfully converted.</p>',
       attachments: attachments || []
     };
 
-    if (useFallback || !BREVO_USER || !BREVO_PASS) {
+    // If using custom Gmail SMTP, run direct verification check to decide fallback
+    let localUseFallback = useFallback;
+    if (isGmailAuth) {
+      try {
+        await activeTransporter.verify();
+        localUseFallback = false;
+      } catch (authErr) {
+        console.error('Gmail SMTP Verification failed:', authErr.message);
+        gmailAuthError = authErr.message;
+        localUseFallback = true;
+      }
+    } else {
+      // Fallback check for global Brevo SMTP credentials
+      if (!BREVO_USER || !BREVO_PASS) {
+        localUseFallback = true;
+      }
+    }
+
+    if (localUseFallback) {
       console.log('\n============================================================');
       console.log(`📧 [MOCK EMAIL LOG - SMTP FALLBACK ENABLED]`);
-      console.log(`From:    "${companyName || 'NEXUS'}" <${BREVO_SENDER || 'noreply@nexus.crm'}>`);
+      console.log(`Reason:  ${gmailAuthError ? `Gmail SMTP verification failed (${gmailAuthError})` : 'Global SMTP credentials not configured'}`);
+      console.log(`From:    "${companyName || 'NEXUS'}" <${senderEmail}>`);
       console.log(`To:      ${to}`);
       console.log(`Subject: ${subject}`);
       console.log(`Time:    ${new Date().toISOString()}`);
@@ -456,18 +509,18 @@ mailRouter.post('/send', async (req, res) => {
       return res.json({ 
         success: true, 
         messageId: `mock-msg-${Date.now()}`,
-        warning: 'SMTP authentication failed or credentials not configured. Email logged to console.'
+        warning: `SMTP authentication failed or credentials not configured. Email logged to console.${gmailAuthError ? ` Details: ${gmailAuthError}` : ''}`
       });
     }
 
-    const info = await transporter.sendMail(mailOptions);
+    const info = await activeTransporter.sendMail(mailOptions);
     console.log('Message sent: %s', info.messageId);
     return res.json({ success: true, messageId: info.messageId });
   } catch (error) {
     console.error('Error sending email via SMTP, falling back to console log:', error);
     console.log('\n============================================================');
     console.log(`📧 [MOCK EMAIL LOG - SMTP RUNTIME ERROR FALLBACK]`);
-    console.log(`From:    "${companyName || 'NEXUS'}" <${BREVO_SENDER || 'noreply@nexus.crm'}>`);
+    console.log(`From:    "${companyName || 'NEXUS'}" <${senderEmail}>`);
     console.log(`To:      ${req.body.to}`);
     console.log(`Subject: ${req.body.subject}`);
     console.log(`Error:   ${error.message}`);

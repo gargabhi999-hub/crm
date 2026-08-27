@@ -111,6 +111,7 @@ async function triggerConversionEmail(contactId, receiptImageBase64 = null) {
       subject: `✅ New Conversion: ₹${amount.toLocaleString('en-IN')} — ${clientName}`,
       html,
       companyName: admin.name || 'SS Enterprises',
+      adminId: admin.id,
       attachments
     });
 

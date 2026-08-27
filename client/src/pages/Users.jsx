@@ -12,7 +12,17 @@ const Users = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen,  setIsModalOpen]  = useState(false);
   const [editingUser,  setEditingUser]  = useState(null);
-  const [formData,     setFormData]     = useState({ name: '', username: '', password: '', role: 'agent', active: true, tlId: '' });
+  const [formData,     setFormData]     = useState({ 
+    name: '', 
+    username: '', 
+    password: '', 
+    role: 'agent', 
+    active: true, 
+    tlId: '',
+    receiverMail: '',
+    smtpGmail: '',
+    smtpPassword: ''
+  });
   const [isSaving,     setIsSaving]     = useState(false);
   
   // New state for TL disposition
@@ -20,7 +30,7 @@ const Users = () => {
   const [showReactivateModal, setShowReactivateModal] = useState(false);
   const [dispositionData, setDispositionData]           = useState({ action: 'reassign', newTlId: '' });
   const [affectedAgentsCount, setAffectedAgentsCount]   = useState(0);
-
+ 
   const fetchUsers = async () => {
     try {
       const res = await api.get('/users');
@@ -31,14 +41,14 @@ const Users = () => {
       setLoading(false);
     }
   };
-
+ 
   useEffect(() => {
     fetchUsers();
     if (!socket) return;
     socket.on('users_updated', fetchUsers);
     return () => socket.off('users_updated', fetchUsers);
   }, [socket]);
-
+ 
   useEffect(() => {
     if (isModalOpen || showActionModal || showReactivateModal) {
       document.body.style.overflow = 'hidden';
@@ -49,11 +59,11 @@ const Users = () => {
       document.body.style.overflow = '';
     };
   }, [isModalOpen, showActionModal, showReactivateModal]);
-
+ 
   const tls     = users.filter(u => u.role === 'tl');
   const admins  = users.filter(u => u.role === 'admin');
   const agents  = users.filter(u => u.role === 'agent');
-
+ 
   const filtered = users
     .filter(u => user?.role === 'superadmin' ? true : u.role !== 'admin')
     .filter(u =>
@@ -61,22 +71,42 @@ const Users = () => {
       u.username.toLowerCase().includes(searchTerm.toLowerCase())
     )
     .sort((a, b) => (a.role === 'tl' && b.role === 'agent') ? -1 : (a.role === 'agent' && b.role === 'tl') ? 1 : 0);
-
+ 
   const openModal = (u = null) => {
     if (u) {
       setEditingUser(u);
-      setFormData({ name: u.name, username: u.username, password: '', role: u.role, active: u.active, tlId: u.tlId || '' });
+      setFormData({ 
+        name: u.name, 
+        username: u.username, 
+        password: '', 
+        role: u.role, 
+        active: u.active, 
+        tlId: u.tlId || '',
+        receiverMail: u.receiverMail || '',
+        smtpGmail: u.smtpGmail || '',
+        smtpPassword: u.smtpPassword || ''
+      });
     } else {
       setEditingUser(null);
-      setFormData({ name: '', username: '', password: '', role: user?.role === 'superadmin' ? 'admin' : 'agent', active: true, tlId: '' });
+      setFormData({ 
+        name: '', 
+        username: '', 
+        password: '', 
+        role: user?.role === 'superadmin' ? 'admin' : 'agent', 
+        active: true, 
+        tlId: '',
+        receiverMail: '',
+        smtpGmail: '',
+        smtpPassword: ''
+      });
     }
     setIsModalOpen(true);
   };
-
+ 
   const handleSubmit = async (e, forceDisposition = false, reactivateAction = null) => {
     if (e) e.preventDefault();
     if (isSaving) return;
-
+ 
     try {
       setIsSaving(true);
       if (editingUser) {
@@ -90,7 +120,7 @@ const Users = () => {
             return;
           }
         }
-
+ 
         // Special check for TL reactivation
         if (editingUser.role === 'tl' && formData.active === true && editingUser.active === false && reactivateAction === null) {
           const inactiveAgentsToHandle = agents.filter(a => a.tlId === editingUser._id && !a.active);
@@ -101,8 +131,14 @@ const Users = () => {
             return;
           }
         }
-
-        const payload = { name: formData.name, active: formData.active };
+ 
+        const payload = { 
+          name: formData.name, 
+          active: formData.active,
+          receiverMail: formData.role === 'admin' ? formData.receiverMail : undefined,
+          smtpGmail: formData.role === 'admin' ? formData.smtpGmail : undefined,
+          smtpPassword: formData.role === 'admin' ? formData.smtpPassword : undefined
+        };
         if (formData.password) payload.password = formData.password;
         if (formData.role === 'agent') payload.tlId = formData.tlId;
         
@@ -112,11 +148,11 @@ const Users = () => {
             payload.newTlId = dispositionData.newTlId;
           }
         }
-
+ 
         if (reactivateAction !== null) {
           payload.reactivateAgents = reactivateAction;
         }
-
+ 
         await api.put(`/users/${editingUser._id}`, payload);
       } else {
         await api.post('/users', formData);
@@ -345,6 +381,43 @@ const Users = () => {
                     <option value="">-- Select Team Lead --</option>
                     {tls.map(t => <option key={t._id} value={t._id}>{t.name}</option>)}
                   </select>
+                </div>
+              )}
+              {formData.role === 'admin' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 12, marginBottom: 12 }} className="animate-slide-up">
+                  <div className="input-group" style={{ marginBottom: 0 }}>
+                    <label>Receiver Email *</label>
+                    <input 
+                      type="email" 
+                      className="input-field" 
+                      value={formData.receiverMail} 
+                      onChange={e => setFormData(p => ({ ...p, receiverMail: e.target.value }))} 
+                      required 
+                      placeholder="e.g. notification@company.com"
+                    />
+                  </div>
+                  <div className="input-group" style={{ marginBottom: 0 }}>
+                    <label>Admin SMTP Gmail (Sender) *</label>
+                    <input 
+                      type="email" 
+                      className="input-field" 
+                      value={formData.smtpGmail} 
+                      onChange={e => setFormData(p => ({ ...p, smtpGmail: e.target.value }))} 
+                      required 
+                      placeholder="e.g. sender@gmail.com"
+                    />
+                  </div>
+                  <div className="input-group" style={{ marginBottom: 0 }}>
+                    <label>Gmail App Password *</label>
+                    <input 
+                      type="password" 
+                      className="input-field" 
+                      value={formData.smtpPassword} 
+                      onChange={e => setFormData(p => ({ ...p, smtpPassword: e.target.value }))} 
+                      required 
+                      placeholder="16-character Gmail app password"
+                    />
+                  </div>
                 </div>
               )}
               <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}>
