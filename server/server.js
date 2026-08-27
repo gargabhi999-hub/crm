@@ -319,6 +319,7 @@ usersRouter.post('/', verify, authorize(['superadmin', 'admin']), async (req, re
     }
     
     const result = await prisma.user.create({ data: userData });
+    io.emit('users_updated');
     const { password: _, ...userWithoutPassword } = result;
     res.status(201).json({ ...userWithoutPassword, _id: result.id });
   } catch (err) {
@@ -402,6 +403,7 @@ usersRouter.put('/:id', verify, authorize(['superadmin', 'admin']), async (req, 
       where: { id: userId },
       data: updateData
     });
+    io.emit('users_updated');
     res.json({ success: true });
   } catch (err) {
     console.error('Update user error:', err);
@@ -428,6 +430,7 @@ usersRouter.delete('/:id', verify, authorize(['superadmin']), async (req, res) =
       where: { id: userId },
       data: { isDeleted: true, active: false }
     });
+    io.emit('users_updated');
     res.json({ success: true });
   } catch (err) {
     console.error('Delete user error:', err);
