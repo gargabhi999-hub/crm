@@ -440,6 +440,48 @@ usersRouter.delete('/:id', verify, authorize(['superadmin']), async (req, res) =
 
 // --- Mail Router Definition ---
 const mailRouter = express.Router();
+mailRouter.post('/test-connection', verify, async (req, res) => {
+  const { smtpGmail, smtpPassword, receiverMail } = req.body;
+  if (!smtpGmail || !smtpPassword || !receiverMail) {
+    return res.status(400).json({ error: 'All fields (SMTP Gmail, App Password, and Receiver Email) are required for testing.' });
+  }
+
+  try {
+    const testTransporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: smtpGmail.trim(),
+        pass: smtpPassword.trim()
+      }
+    });
+
+    // 1. Verify credentials
+    await testTransporter.verify();
+
+    // 2. Send test email
+    const mailOptions = {
+      from: `"Spike CRM Connection Test" <${smtpGmail.trim()}>`,
+      to: receiverMail.trim(),
+      subject: '🔍 Spike CRM: SMTP Connection Test',
+      html: `
+        <div style="font-family: Arial, sans-serif; color: #333; line-height: 1.6; max-width: 500px; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
+          <h2 style="color: #10b981; margin-top: 0;">Connection Successful!</h2>
+          <p>This is a test email confirming that your custom Google Gmail SMTP settings are working perfectly in Spike CRM.</p>
+          <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 15px 0;" />
+          <p style="margin-bottom: 5px;"><strong>Sender Email:</strong> <span style="font-family: monospace;">${smtpGmail}</span></p>
+          <p style="margin-top: 0;"><strong>Receiver Email:</strong> <span style="font-family: monospace;">${receiverMail}</span></p>
+          <p style="font-size: 0.85rem; color: #64748b; margin-top: 20px;">You can now safely save these settings in your dashboard.</p>
+        </div>
+      `
+    };
+
+    await testTransporter.sendMail(mailOptions);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('SMTP Test Connection failed:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
 mailRouter.post('/send', async (req, res) => {
   try {
     const { to, subject, html, companyName, attachments, adminId } = req.body;

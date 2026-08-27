@@ -151,6 +151,7 @@ const Dashboard = () => {
   const [smtpGmail, setSmtpGmail] = useState(user?.smtpGmail || '');
   const [smtpPassword, setSmtpPassword] = useState(user?.smtpPassword || '');
   const [savingSettings, setSavingSettings] = useState(false);
+  const [testingConnection, setTestingConnection] = useState(false);
   if (user?.role === 'superadmin') {
     return <SuperAdminDashboard />;
   }
@@ -231,6 +232,27 @@ const Dashboard = () => {
       alert('Failed to save settings');
     } finally {
       setSavingSettings(false);
+    }
+  };
+
+  const handleTestConnection = async () => {
+    if (!smtpGmail || !smtpPassword || !receiverMail) {
+      alert('Please fill in SMTP Gmail, App Password, and Receiver Email before testing.');
+      return;
+    }
+    try {
+      setTestingConnection(true);
+      await api.post('/mail/test-connection', {
+        smtpGmail,
+        smtpPassword,
+        receiverMail
+      });
+      alert('Test Email sent successfully! Check the receiver inbox.');
+    } catch (err) {
+      console.error(err);
+      alert(err.response?.data?.error || 'SMTP Test failed. Check credentials and App Password.');
+    } finally {
+      setTestingConnection(false);
     }
   };
 
@@ -673,6 +695,24 @@ const Dashboard = () => {
                     onChange={e => setSmtpPassword(e.target.value)}
                     placeholder="16-character app password"
                   />
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-start', marginTop: 6 }}>
+                  <button 
+                    type="button" 
+                    className="btn" 
+                    style={{ 
+                      background: 'rgba(16,185,129,0.1)', 
+                      color: '#10b981', 
+                      border: '1px solid rgba(16,185,129,0.2)',
+                      padding: '8px 16px',
+                      fontSize: '0.85rem',
+                      fontWeight: 700
+                    }} 
+                    onClick={handleTestConnection} 
+                    disabled={testingConnection}
+                  >
+                    {testingConnection ? 'Testing SMTP Connection...' : 'Test SMTP Connection'}
+                  </button>
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 20 }}>
