@@ -2,6 +2,29 @@ const Imap = require('imap');
 const { simpleParser } = require('mailparser');
 const { prisma } = require('./db');
 
+function stripQuotedText(text) {
+  if (!text) return '';
+  const lines = text.split(/\r?\n/);
+  const cleanLines = [];
+  
+  for (const line of lines) {
+    const trimmed = line.trim();
+    // Check for common reply splitters
+    if (
+      trimmed.match(/^on\s+.*wrote:$/i) || 
+      trimmed.match(/^from:.*$/i) ||
+      trimmed.startsWith('-----Original Message-----') ||
+      trimmed.startsWith('________________________________') ||
+      trimmed.startsWith('>')
+    ) {
+      break;
+    }
+    cleanLines.push(line);
+  }
+  
+  return cleanLines.join('\n').trim();
+}
+
 async function processAdminInbox(admin) {
   return new Promise((resolve, reject) => {
     const imap = new Imap({
@@ -91,12 +114,13 @@ async function processAdminInbox(admin) {
                       extractedTxId = txMatch[1].trim();
                     }
 
-                    const cleanBody = (bodyText || bodyHtml.replace(/<[^>]*>/g, '')).trim().substring(0, 300);
+                    const replyTextOnly = stripQuotedText(bodyText || bodyHtml.replace(/<[^>]*>/g, '')).trim();
+                    const cleanBody = replyTextOnly.substring(0, 300);
                     let replySnippet = '';
 
                     // 3. Align and Update Transaction ID
                     if (extractedTxId) {
-                      replySnippet = `[Reply Message ID: ${messageId} | From ${from} on ${new Date().toLocaleString()} - Extracted TxID: ${extractedTxId}]: "${cleanBody}..."\n\n`;
+                      replySnippet = `[Email Transaction ID: ${extractedTxId}] (Reply from ${from} on ${new Date().toLocaleString()}): "${cleanBody}" [MsgID: ${messageId}]\n\n`;
 
                       const currentTxId = (contact.transactionId || '').trim();
                       // Only update if existing is empty, null, or 'N/A'
@@ -117,10 +141,10 @@ async function processAdminInbox(admin) {
                         }
                       } else {
                         console.log(`[Email Reply Worker] Preserving existing transaction ID: ${currentTxId} (Not overwriting with: ${extractedTxId})`);
-                        replySnippet = `[Reply Message ID: ${messageId} | From ${from} on ${new Date().toLocaleString()} - Received TxID: ${extractedTxId} (Preserved existing: ${currentTxId})]: "${cleanBody}..."\n\n`;
+                        replySnippet = `[Email Transaction ID: ${extractedTxId}] (Reply from ${from} on ${new Date().toLocaleString()} - Preserved original UTR: ${currentTxId}): "${cleanBody}" [MsgID: ${messageId}]\n\n`;
                       }
                     } else {
-                      replySnippet = `[Reply Message ID: ${messageId} | From ${from} on ${new Date().toLocaleString()}]: "${cleanBody}..."\n\n`;
+                      replySnippet = `[Email Reply] (Reply from ${from} on ${new Date().toLocaleString()}): "${cleanBody}" [MsgID: ${messageId}]\n\n`;
                     }
 
                     // 4. Update Remarks for both Contact and Lead
