@@ -122,26 +122,19 @@ async function processAdminInbox(admin) {
                     if (extractedTxId) {
                       replySnippet = `[Email Transaction ID: ${extractedTxId}] (Reply from ${from} on ${new Date().toLocaleString()}): "${cleanBody}" [MsgID: ${messageId}]\n\n`;
 
-                      const currentTxId = (contact.transactionId || '').trim();
-                      // Only update if existing is empty, null, or 'N/A'
-                      if (!currentTxId || currentTxId.toLowerCase() === 'n/a') {
-                        console.log(`[Email Reply Worker] Adding extracted transaction ID: ${extractedTxId} to contact ${contactId}`);
-                        await prisma.contact.update({
-                          where: { id: contactId },
+                      console.log(`[Email Reply Worker] Syncing verified transaction ID: ${extractedTxId} to contact ${contactId}`);
+                      await prisma.contact.update({
+                        where: { id: contactId },
+                        data: { transactionId: extractedTxId }
+                      });
+
+                      // Sync to Lead record if exists
+                      const leadRecord = await prisma.lead.findFirst({ where: { contactId } });
+                      if (leadRecord) {
+                        await prisma.lead.update({
+                          where: { id: leadRecord.id },
                           data: { transactionId: extractedTxId }
                         });
-
-                        // Sync to Lead record if exists
-                        const leadRecord = await prisma.lead.findFirst({ where: { contactId } });
-                        if (leadRecord) {
-                          await prisma.lead.update({
-                            where: { id: leadRecord.id },
-                            data: { transactionId: extractedTxId }
-                          });
-                        }
-                      } else {
-                        console.log(`[Email Reply Worker] Preserving existing transaction ID: ${currentTxId} (Not overwriting with: ${extractedTxId})`);
-                        replySnippet = `[Email Transaction ID: ${extractedTxId}] (Reply from ${from} on ${new Date().toLocaleString()} - Preserved original UTR: ${currentTxId}): "${cleanBody}" [MsgID: ${messageId}]\n\n`;
                       }
                     } else {
                       replySnippet = `[Email Reply] (Reply from ${from} on ${new Date().toLocaleString()}): "${cleanBody}" [MsgID: ${messageId}]\n\n`;
