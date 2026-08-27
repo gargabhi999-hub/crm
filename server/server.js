@@ -16,6 +16,7 @@ const path = require('path');
 
 const { connect, prisma } = require('./shared/db');
 const { sign, verify, authorize } = require('./shared/authMiddleware');
+const { startEmailReplyWorker } = require('./shared/emailReplyWorker');
 
 const app = express();
 const server = http.createServer(app);
@@ -811,6 +812,7 @@ async function start() {
     setInterval(checkAppointments, 10000);
     setInterval(checkCallbacks, 10000);
     setInterval(checkInactiveSessions, 30000);
+    startEmailReplyWorker();
   });
 
   // Seed default superadmin
