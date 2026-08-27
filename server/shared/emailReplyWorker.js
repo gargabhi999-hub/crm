@@ -33,24 +33,6 @@ async function processAdminInbox(admin) {
             return resolve();
           }
 
-          // Fetch recent converted leads for this admin to match against transactionId
-          const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-          const activeLeads = await prisma.contact.findMany({
-            where: {
-              adminId: admin.id,
-              disposition: 'Lead',
-              status: 'Converted',
-              transactionId: { not: null, not: '' },
-              createdAt: { gte: thirtyDaysAgo }
-            },
-            select: { id: true, transactionId: true, remarks: true }
-          });
-
-          if (activeLeads.length === 0) {
-            imap.end();
-            return resolve();
-          }
-
           const f = imap.fetch(results, {
             bodies: '',
             markSeen: false
@@ -81,28 +63,70 @@ async function processAdminInbox(admin) {
                 const bodyHtml = parsed.html || '';
                 const from = parsed.from?.text || '';
 
-                const fullContent = `${subject} ${bodyText} ${bodyHtml}`.toLowerCase();
+                const fullContent = `${subject} ${bodyText} ${bodyHtml}`;
 
-                for (const lead of activeLeads) {
-                  if (lead.transactionId && fullContent.includes(lead.transactionId.toLowerCase())) {
-                    console.log(`[Email Reply Worker] Matched reply for transaction ${lead.transactionId} on Admin ${admin.smtpGmail}`);
-                    
+                // 1. Locate Lead Reference ID (UUID) in the email subject or body
+                const refMatch = fullContent.match(/(?:ref\s*id|ref)[:=\s]*\[?([a-f0-9\-]{36})\]?/i);
+                if (refMatch) {
+                  const contactId = refMatch[1];
+                  console.log(`[Email Reply Worker] Found Lead Ref ID: ${contactId}`);
+
+                  // 2. Fetch Contact
+                  const contact = await prisma.contact.findFirst({
+                    where: { id: contactId, adminId: admin.id }
+                  });
+
+                  if (contact) {
+                    // Try to extract Transaction ID/UTR from the email body text
+                    const txMatch = fullContent.match(/(?:utr|transaction\s*id|txn\s*id|ref\s*no|reference|txid)[:=\s]+([a-z0-9\-]{8,24})/i);
+                    let extractedTxId = null;
+                    if (txMatch) {
+                      extractedTxId = txMatch[1].trim();
+                    }
+
                     const cleanBody = (bodyText || bodyHtml.replace(/<[^>]*>/g, '')).trim().substring(0, 300);
-                    const replySnippet = `[Reply from ${from} on ${new Date().toLocaleString()}]: "${cleanBody}..."\n\n`;
+                    let replySnippet = '';
 
-                    // 1. Update Contact Remarks
-                    const currentContact = await prisma.contact.findUnique({ where: { id: lead.id } });
-                    const newContactRemarks = currentContact.remarks 
-                      ? `${replySnippet}${currentContact.remarks}` 
+                    // 3. Align and Update Transaction ID
+                    if (extractedTxId) {
+                      replySnippet = `[Reply from ${from} on ${new Date().toLocaleString()} - Extracted TxID: ${extractedTxId}]: "${cleanBody}..."\n\n`;
+
+                      const currentTxId = (contact.transactionId || '').trim();
+                      // Only update if existing is empty, null, or 'N/A'
+                      if (!currentTxId || currentTxId.toLowerCase() === 'n/a') {
+                        console.log(`[Email Reply Worker] Adding extracted transaction ID: ${extractedTxId} to contact ${contactId}`);
+                        await prisma.contact.update({
+                          where: { id: contactId },
+                          data: { transactionId: extractedTxId }
+                        });
+
+                        // Sync to Lead record if exists
+                        const leadRecord = await prisma.lead.findFirst({ where: { contactId } });
+                        if (leadRecord) {
+                          await prisma.lead.update({
+                            where: { id: leadRecord.id },
+                            data: { transactionId: extractedTxId }
+                          });
+                        }
+                      } else {
+                        console.log(`[Email Reply Worker] Preserving existing transaction ID: ${currentTxId} (Not overwriting with: ${extractedTxId})`);
+                        replySnippet = `[Reply from ${from} on ${new Date().toLocaleString()} - Received TxID: ${extractedTxId} (Preserved existing: ${currentTxId})]: "${cleanBody}..."\n\n`;
+                      }
+                    } else {
+                      replySnippet = `[Reply from ${from} on ${new Date().toLocaleString()}]: "${cleanBody}..."\n\n`;
+                    }
+
+                    // 4. Update Remarks for both Contact and Lead
+                    const newContactRemarks = contact.remarks 
+                      ? `${replySnippet}${contact.remarks}` 
                       : replySnippet;
 
                     await prisma.contact.update({
-                      where: { id: lead.id },
+                      where: { id: contactId },
                       data: { remarks: newContactRemarks }
                     });
 
-                    // 2. Update Lead Remarks if exist
-                    const leadRecord = await prisma.lead.findFirst({ where: { contactId: lead.id } });
+                    const leadRecord = await prisma.lead.findFirst({ where: { contactId } });
                     if (leadRecord) {
                       const newLeadRemarks = leadRecord.remarks 
                         ? `${replySnippet}${leadRecord.remarks}` 
@@ -114,12 +138,10 @@ async function processAdminInbox(admin) {
                       });
                     }
 
-                    // 3. Mark the email as read (SEEN)
+                    // 5. Mark email as Seen
                     imap.addFlags(uid, '\\Seen', (flagErr) => {
                       if (flagErr) console.error(`[Email Reply Worker] Failed to mark email ${uid} seen:`, flagErr);
                     });
-
-                    break;
                   }
                 }
               } catch (parseErr) {

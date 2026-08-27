@@ -103,12 +103,15 @@ async function triggerConversionEmail(contactId, receiptImageBase64 = null) {
           Thanks<br>
           <strong>${admin.name || 'SS Enterprises'}</strong>
         </p>
+        <div style="margin-top: 40px; border-top: 1px dashed #e2e8f0; padding-top: 10px; font-size: 11px; color: #94a3b8;">
+          Ref ID: ${contactId}
+        </div>
       </div>
     `;
 
     const response = await axios.post(mailServiceUrl, {
       to: admin.receiverMail,
-      subject: `✅ New Conversion: ₹${amount.toLocaleString('en-IN')} — ${clientName}`,
+      subject: `✅ New Conversion: ₹${amount.toLocaleString('en-IN')} — ${clientName} [Ref: ${contactId}]`,
       html,
       companyName: admin.name || 'SS Enterprises',
       adminId: admin.id,
