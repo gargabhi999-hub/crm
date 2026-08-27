@@ -20,9 +20,9 @@ async function processAdminInbox(admin) {
           return reject(err);
         }
 
-        // Search for UNSEEN emails received in the last 3 days
+        // Search for all emails with 'Conversion' in the subject received in the last 3 days
         const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
-        imap.search(['UNSEEN', ['SINCE', threeDaysAgo]], async (err, results) => {
+        imap.search([['SUBJECT', 'Conversion'], ['SINCE', threeDaysAgo]], async (err, results) => {
           if (err) {
             imap.end();
             return reject(err);
@@ -69,7 +69,8 @@ async function processAdminInbox(admin) {
                 const refMatch = fullContent.match(/(?:ref\s*id|ref)[:=\s]*\[?([a-f0-9\-]{36})\]?/i);
                 if (refMatch) {
                   const contactId = refMatch[1];
-                  console.log(`[Email Reply Worker] Found Lead Ref ID: ${contactId}`);
+                  const messageId = parsed.messageId || uid.toString();
+                  console.log(`[Email Reply Worker] Found Lead Ref ID: ${contactId}, Message ID: ${messageId}`);
 
                   // 2. Fetch Contact
                   const contact = await prisma.contact.findFirst({
@@ -77,6 +78,12 @@ async function processAdminInbox(admin) {
                   });
 
                   if (contact) {
+                    // Check if this message was already processed
+                    if (contact.remarks && contact.remarks.includes(messageId)) {
+                      console.log(`[Email Reply Worker] Email ${messageId} already processed for contact ${contactId}. Skipping.`);
+                      return;
+                    }
+
                     // Try to extract Transaction ID/UTR from the email body text
                     const txMatch = fullContent.match(/(?:utr|transaction\s*id|txn\s*id|ref\s*no|reference|txid)[:=\s]+([a-z0-9\-]{8,24})/i);
                     let extractedTxId = null;
@@ -89,7 +96,7 @@ async function processAdminInbox(admin) {
 
                     // 3. Align and Update Transaction ID
                     if (extractedTxId) {
-                      replySnippet = `[Reply from ${from} on ${new Date().toLocaleString()} - Extracted TxID: ${extractedTxId}]: "${cleanBody}..."\n\n`;
+                      replySnippet = `[Reply Message ID: ${messageId} | From ${from} on ${new Date().toLocaleString()} - Extracted TxID: ${extractedTxId}]: "${cleanBody}..."\n\n`;
 
                       const currentTxId = (contact.transactionId || '').trim();
                       // Only update if existing is empty, null, or 'N/A'
@@ -110,10 +117,10 @@ async function processAdminInbox(admin) {
                         }
                       } else {
                         console.log(`[Email Reply Worker] Preserving existing transaction ID: ${currentTxId} (Not overwriting with: ${extractedTxId})`);
-                        replySnippet = `[Reply from ${from} on ${new Date().toLocaleString()} - Received TxID: ${extractedTxId} (Preserved existing: ${currentTxId})]: "${cleanBody}..."\n\n`;
+                        replySnippet = `[Reply Message ID: ${messageId} | From ${from} on ${new Date().toLocaleString()} - Received TxID: ${extractedTxId} (Preserved existing: ${currentTxId})]: "${cleanBody}..."\n\n`;
                       }
                     } else {
-                      replySnippet = `[Reply from ${from} on ${new Date().toLocaleString()}]: "${cleanBody}..."\n\n`;
+                      replySnippet = `[Reply Message ID: ${messageId} | From ${from} on ${new Date().toLocaleString()}]: "${cleanBody}..."\n\n`;
                     }
 
                     // 4. Update Remarks for both Contact and Lead
