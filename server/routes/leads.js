@@ -912,9 +912,8 @@ router.post('/extract-transaction', verify, authorize(['superadmin', 'admin', 't
     }
 
     const models = [
-      'meta-llama/llama-4-scout-17b-16e-instruct',
-      'llama-3.2-11b-vision-preview',
-      'llama-3.2-90b-vision-preview'
+      'qwen/qwen3.8-27b',
+      'qwen/qwen3.6-27b'
     ];
 
     let response = null;
