@@ -2,6 +2,10 @@
   "version": 2,
   "rewrites": [
     {
+      "source": "/api/send-email",
+      "destination": "/api/send-email.js"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

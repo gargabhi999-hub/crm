@@ -10,6 +10,7 @@ const cookieParser = require('cookie-parser');
 const morgan = require('morgan');
 const bcrypt = require('bcryptjs');
 const nodemailer = require('nodemailer');
+const axios = require('axios');
 const { execSync } = require('child_process');
 const path = require('path');
 
@@ -446,40 +447,35 @@ mailRouter.post('/test-connection', verify, async (req, res) => {
     return res.status(400).json({ error: 'All fields (SMTP Gmail, App Password, and Receiver Email) are required for testing.' });
   }
 
+  const frontendUrl = process.env.FRONTEND_URL || 'https://crm-eight-sage.vercel.app';
+  const vercelEmailUrl = `${frontendUrl.replace(/\/$/, '')}/api/send-email`;
+
   try {
-    const testTransporter = nodemailer.createTransport({
-      service: 'gmail',
-      auth: {
-        user: smtpGmail.trim(),
-        pass: smtpPassword.trim()
-      }
-    });
-
-    // 1. Verify credentials
-    await testTransporter.verify();
-
-    // 2. Send test email
-    const mailOptions = {
-      from: `"Spike CRM Connection Test" <${smtpGmail.trim()}>`,
+    const axiosResponse = await axios.post(vercelEmailUrl, {
+      smtpGmail: smtpGmail.trim(),
+      smtpPassword: smtpPassword.trim(),
       to: receiverMail.trim(),
       subject: '🔍 Spike CRM: SMTP Connection Test',
       html: `
         <div style="font-family: Arial, sans-serif; color: #333; line-height: 1.6; max-width: 500px; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
           <h2 style="color: #10b981; margin-top: 0;">Connection Successful!</h2>
-          <p>This is a test email confirming that your custom Google Gmail SMTP settings are working perfectly in Spike CRM.</p>
+          <p>This is a test email confirming that your custom Google Gmail SMTP settings are working perfectly in Spike CRM via Vercel proxy.</p>
           <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 15px 0;" />
           <p style="margin-bottom: 5px;"><strong>Sender Email:</strong> <span style="font-family: monospace;">${smtpGmail}</span></p>
           <p style="margin-top: 0;"><strong>Receiver Email:</strong> <span style="font-family: monospace;">${receiverMail}</span></p>
           <p style="font-size: 0.85rem; color: #64748b; margin-top: 20px;">You can now safely save these settings in your dashboard.</p>
         </div>
       `
-    };
+    });
 
-    await testTransporter.sendMail(mailOptions);
-    res.json({ success: true });
+    if (axiosResponse.data && axiosResponse.data.success) {
+      res.json({ success: true });
+    } else {
+      throw new Error(axiosResponse.data?.error || 'Failed to send test email via proxy');
+    }
   } catch (err) {
     console.error('SMTP Test Connection failed:', err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: err.response?.data?.error || err.message });
   }
 });
 mailRouter.post('/send', async (req, res) => {
@@ -487,8 +483,8 @@ mailRouter.post('/send', async (req, res) => {
     const { to, subject, html, companyName, attachments, adminId } = req.body;
     if (!to) return res.status(400).json({ error: 'Receiver email is required.' });
 
-    let activeTransporter = transporter;
     let senderEmail = BREVO_SENDER || 'noreply@nexus.crm';
+    let smtpPasswordVal = '';
     let isGmailAuth = false;
     let gmailAuthError = null;
 
@@ -496,14 +492,8 @@ mailRouter.post('/send', async (req, res) => {
       try {
         const adminUser = await prisma.user.findUnique({ where: { id: adminId } });
         if (adminUser && adminUser.smtpGmail && adminUser.smtpPassword) {
-          activeTransporter = nodemailer.createTransport({
-            service: 'gmail',
-            auth: {
-              user: adminUser.smtpGmail.trim(),
-              pass: adminUser.smtpPassword.trim()
-            }
-          });
           senderEmail = adminUser.smtpGmail.trim();
+          smtpPasswordVal = adminUser.smtpPassword.trim();
           isGmailAuth = true;
         }
       } catch (dbErr) {
@@ -519,28 +509,61 @@ mailRouter.post('/send', async (req, res) => {
       attachments: attachments || []
     };
 
-    // If using custom Gmail SMTP, run direct verification check to decide fallback
-    let localUseFallback = useFallback;
+    // If using custom Gmail SMTP, run sending via Vercel proxy to bypass Render blocks
     if (isGmailAuth) {
+      const frontendUrl = process.env.FRONTEND_URL || 'https://crm-eight-sage.vercel.app';
+      const vercelEmailUrl = `${frontendUrl.replace(/\/$/, '')}/api/send-email`;
       try {
-        await activeTransporter.verify();
-        localUseFallback = false;
-      } catch (authErr) {
-        console.error('Gmail SMTP Verification failed:', authErr.message);
-        gmailAuthError = authErr.message;
-        localUseFallback = true;
+        const axiosResponse = await axios.post(vercelEmailUrl, {
+          smtpGmail: senderEmail,
+          smtpPassword: smtpPasswordVal,
+          to,
+          subject: subject || 'New Lead Converted',
+          html: html || '<p>A new lead has been successfully converted.</p>',
+          attachments
+        });
+        if (axiosResponse.data && axiosResponse.data.success) {
+          console.log('Message sent via Vercel SMTP relay: %s', axiosResponse.data.messageId);
+          return res.json({ success: true, messageId: axiosResponse.data.messageId });
+        } else {
+          throw new Error(axiosResponse.data?.error || 'Vercel proxy failed to send email');
+        }
+      } catch (proxyErr) {
+        console.error('Gmail SMTP via Vercel proxy failed:', proxyErr.message);
+        gmailAuthError = proxyErr.message;
+        
+        // Fallback to console log mock
+        console.log('\n============================================================');
+        console.log(`📧 [MOCK EMAIL LOG - SMTP FALLBACK ENABLED]`);
+        console.log(`Reason:  Gmail SMTP via Vercel proxy failed (${proxyErr.message})`);
+        console.log(`From:    "${companyName || 'NEXUS'}" <${senderEmail}>`);
+        console.log(`To:      ${to}`);
+        console.log(`Subject: ${subject}`);
+        console.log(`Time:    ${new Date().toISOString()}`);
+        console.log(`Attachments Count: ${attachments ? attachments.length : 0}`);
+        console.log('------------------------------------------------------------');
+        console.log('HTML Body Preview (First 500 chars):');
+        console.log(html ? html.substring(0, 500) + '...' : 'None');
+        console.log('============================================================\n');
+
+        return res.json({ 
+          success: true, 
+          messageId: `mock-msg-${Date.now()}`,
+          warning: `SMTP authentication failed or Vercel proxy timed out. Email logged to console. Details: ${proxyErr.message}`
+        });
       }
-    } else {
-      // Fallback check for global Brevo SMTP credentials
-      if (!BREVO_USER || !BREVO_PASS) {
-        localUseFallback = true;
-      }
+    }
+
+    // Otherwise, use global Brevo SMTP credentials
+    let localUseFallback = useFallback;
+    if (!BREVO_USER || !BREVO_PASS) {
+      localUseFallback = true;
     }
 
     if (localUseFallback) {
       console.log('\n============================================================');
       console.log(`📧 [MOCK EMAIL LOG - SMTP FALLBACK ENABLED]`);
-      console.log(`Reason:  ${gmailAuthError ? `Gmail SMTP verification failed (${gmailAuthError})` : 'Global SMTP credentials not configured'}`);
+      console.log(`Reason:  Global SMTP credentials not configured`);
       console.log(`From:    "${companyName || 'NEXUS'}" <${senderEmail}>`);
       console.log(`To:      ${to}`);
       console.log(`Subject: ${subject}`);
@@ -554,18 +577,18 @@ mailRouter.post('/send', async (req, res) => {
       return res.json({ 
         success: true, 
         messageId: `mock-msg-${Date.now()}`,
-        warning: `SMTP authentication failed or credentials not configured. Email logged to console.${gmailAuthError ? ` Details: ${gmailAuthError}` : ''}`
+        warning: `SMTP authentication failed or credentials not configured. Email logged to console.`
       });
     }
 
-    const info = await activeTransporter.sendMail(mailOptions);
+    const info = await transporter.sendMail(mailOptions);
     console.log('Message sent: %s', info.messageId);
     return res.json({ success: true, messageId: info.messageId });
   } catch (error) {
     console.error('Error sending email via SMTP, falling back to console log:', error);
     console.log('\n============================================================');
     console.log(`📧 [MOCK EMAIL LOG - SMTP RUNTIME ERROR FALLBACK]`);
-    console.log(`From:    "${companyName || 'NEXUS'}" <${senderEmail}>`);
+    console.log(`From:    "${companyName || 'NEXUS'}" <${BREVO_SENDER || 'noreply@nexus.crm'}>`);
     console.log(`To:      ${req.body.to}`);
     console.log(`Subject: ${req.body.subject}`);
     console.log(`Error:   ${error.message}`);
