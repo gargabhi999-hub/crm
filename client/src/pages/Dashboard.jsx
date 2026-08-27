@@ -148,6 +148,8 @@ const Dashboard = () => {
   // Admin Settings State
   const [showAdminSettings, setShowAdminSettings] = useState(false);
   const [receiverMail, setReceiverMail] = useState(user?.receiverMail || '');
+  const [smtpGmail, setSmtpGmail] = useState(user?.smtpGmail || '');
+  const [smtpPassword, setSmtpPassword] = useState(user?.smtpPassword || '');
   const [savingSettings, setSavingSettings] = useState(false);
   if (user?.role === 'superadmin') {
     return <SuperAdminDashboard />;
@@ -211,8 +213,17 @@ const Dashboard = () => {
     if (!receiverMail) return alert('Please enter an email address');
     try {
       setSavingSettings(true);
-      await api.put(`/users/${user._id || user.id}`, { receiverMail });
-      updateUser({ ...user, receiverMail });
+      await api.put(`/users/${user._id || user.id}`, { 
+        receiverMail,
+        smtpGmail,
+        smtpPassword
+      });
+      updateUser({ 
+        ...user, 
+        receiverMail,
+        smtpGmail,
+        smtpPassword
+      });
       setShowAdminSettings(false);
       alert('Settings saved successfully');
     } catch (err) {
@@ -623,24 +634,46 @@ const Dashboard = () => {
 
       {showAdminSettings && (
         <div className="modal-overlay">
-          <div className="modal-box animate-fade-in" style={{ maxWidth: 400 }}>
+          <div className="modal-box animate-fade-in" style={{ maxWidth: 420 }}>
             <div className="modal-header">
               <h2>Admin Settings</h2>
               <button className="btn btn-ghost btn-icon" onClick={() => setShowAdminSettings(false)}><X size={18} /></button>
             </div>
             <div style={{ padding: '20px 0 0' }}>
-              <div className="input-group">
-                <label>Receiver Email for Converted Leads *</label>
-                <input
-                  type="email"
-                  className="input-field"
-                  value={receiverMail}
-                  onChange={e => setReceiverMail(e.target.value)}
-                  placeholder="admin@example.com"
-                />
-                <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 4 }}>
-                  Whenever a lead is successfully converted by an agent under you, an email with the transaction details will be sent to this address.
-                </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <div className="input-group" style={{ marginBottom: 0 }}>
+                  <label>Receiver Email for Converted Leads *</label>
+                  <input
+                    type="email"
+                    className="input-field"
+                    value={receiverMail}
+                    onChange={e => setReceiverMail(e.target.value)}
+                    placeholder="admin@example.com"
+                  />
+                  <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 4 }}>
+                    Whenever a lead is successfully converted by an agent under you, an email with the transaction details will be sent to this address.
+                  </p>
+                </div>
+                <div className="input-group" style={{ marginBottom: 0 }}>
+                  <label>Admin SMTP Gmail (Sender) *</label>
+                  <input
+                    type="email"
+                    className="input-field"
+                    value={smtpGmail}
+                    onChange={e => setSmtpGmail(e.target.value)}
+                    placeholder="sender@gmail.com"
+                  />
+                </div>
+                <div className="input-group" style={{ marginBottom: 0 }}>
+                  <label>Gmail App Password *</label>
+                  <input
+                    type="password"
+                    className="input-field"
+                    value={smtpPassword}
+                    onChange={e => setSmtpPassword(e.target.value)}
+                    placeholder="16-character app password"
+                  />
+                </div>
               </div>
               <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 20 }}>
                 <button className="btn btn-outline" onClick={() => setShowAdminSettings(false)} disabled={savingSettings}>Cancel</button>
