@@ -448,6 +448,19 @@ mailRouter.post('/test-connection', verify, async (req, res) => {
     return res.status(400).json({ error: 'All fields (SMTP Gmail, App Password, and Receiver Email) are required for testing.' });
   }
 
+  let toField = receiverMail.trim();
+  let ccField = undefined;
+
+  if (receiverMail.includes(',')) {
+    const emailParts = receiverMail.split(',').map(e => e.trim()).filter(Boolean);
+    if (emailParts.length > 0) {
+      toField = emailParts[0];
+      if (emailParts.length > 1) {
+        ccField = emailParts.slice(1).join(', ');
+      }
+    }
+  }
+
   const frontendUrl = process.env.FRONTEND_URL || 'https://crm-eight-sage.vercel.app';
   const vercelEmailUrl = `${frontendUrl.replace(/\/$/, '')}/api/send-email`;
 
@@ -455,7 +468,8 @@ mailRouter.post('/test-connection', verify, async (req, res) => {
     const axiosResponse = await axios.post(vercelEmailUrl, {
       smtpGmail: smtpGmail.trim(),
       smtpPassword: smtpPassword.trim(),
-      to: receiverMail.trim(),
+      to: toField,
+      cc: ccField,
       subject: '🔍 Spike CRM: SMTP Connection Test',
       html: `
         <div style="font-family: Arial, sans-serif; color: #333; line-height: 1.6; max-width: 500px; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
@@ -484,6 +498,19 @@ mailRouter.post('/send', async (req, res) => {
     const { to, subject, html, companyName, attachments, adminId } = req.body;
     if (!to) return res.status(400).json({ error: 'Receiver email is required.' });
 
+    let toField = to.trim();
+    let ccField = undefined;
+
+    if (to.includes(',')) {
+      const emailParts = to.split(',').map(e => e.trim()).filter(Boolean);
+      if (emailParts.length > 0) {
+        toField = emailParts[0];
+        if (emailParts.length > 1) {
+          ccField = emailParts.slice(1).join(', ');
+        }
+      }
+    }
+
     let senderEmail = BREVO_SENDER || 'noreply@nexus.crm';
     let smtpPasswordVal = '';
     let isGmailAuth = false;
@@ -504,7 +531,8 @@ mailRouter.post('/send', async (req, res) => {
 
     const mailOptions = {
       from: `"${companyName || 'NEXUS'}" <${senderEmail}>`,
-      to,
+      to: toField,
+      cc: ccField,
       subject: subject || 'New Lead Converted',
       html: html || '<p>A new lead has been successfully converted.</p>',
       attachments: attachments || []
@@ -518,7 +546,8 @@ mailRouter.post('/send', async (req, res) => {
         const axiosResponse = await axios.post(vercelEmailUrl, {
           smtpGmail: senderEmail,
           smtpPassword: smtpPasswordVal,
-          to,
+          to: toField,
+          cc: ccField,
           subject: subject || 'New Lead Converted',
           html: html || '<p>A new lead has been successfully converted.</p>',
           attachments
@@ -538,7 +567,8 @@ mailRouter.post('/send', async (req, res) => {
         console.log(`📧 [MOCK EMAIL LOG - SMTP FALLBACK ENABLED]`);
         console.log(`Reason:  Gmail SMTP via Vercel proxy failed (${proxyErr.message})`);
         console.log(`From:    "${companyName || 'NEXUS'}" <${senderEmail}>`);
-        console.log(`To:      ${to}`);
+        console.log(`To:      ${toField}`);
+        console.log(`CC:      ${ccField || 'None'}`);
         console.log(`Subject: ${subject}`);
         console.log(`Time:    ${new Date().toISOString()}`);
         console.log(`Attachments Count: ${attachments ? attachments.length : 0}`);

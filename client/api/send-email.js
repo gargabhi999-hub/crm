@@ -19,7 +19,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { smtpGmail, smtpPassword, to, subject, html, attachments } = req.body;
+  const { smtpGmail, smtpPassword, to, cc, subject, html, attachments } = req.body;
   if (!smtpGmail || !smtpPassword || !to) {
     return res.status(400).json({ error: 'Missing required parameters' });
   }
@@ -36,6 +36,7 @@ export default async function handler(req, res) {
     const mailOptions = {
       from: `"Spike CRM" <${smtpGmail.trim()}>`,
       to,
+      cc,
       subject,
       html,
       attachments: attachments || []

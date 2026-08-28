@@ -148,10 +148,7 @@ const Dashboard = () => {
   // Admin Settings State
   const [showAdminSettings, setShowAdminSettings] = useState(false);
   const [receiverMail, setReceiverMail] = useState(user?.receiverMail || '');
-  const [smtpGmail, setSmtpGmail] = useState(user?.smtpGmail || '');
-  const [smtpPassword, setSmtpPassword] = useState(user?.smtpPassword || '');
   const [savingSettings, setSavingSettings] = useState(false);
-  const [testingConnection, setTestingConnection] = useState(false);
   if (user?.role === 'superadmin') {
     return <SuperAdminDashboard />;
   }
@@ -215,15 +212,11 @@ const Dashboard = () => {
     try {
       setSavingSettings(true);
       await api.put(`/users/${user._id || user.id}`, { 
-        receiverMail,
-        smtpGmail,
-        smtpPassword
+        receiverMail
       });
       updateUser({ 
         ...user, 
-        receiverMail,
-        smtpGmail,
-        smtpPassword
+        receiverMail
       });
       setShowAdminSettings(false);
       alert('Settings saved successfully');
@@ -232,27 +225,6 @@ const Dashboard = () => {
       alert('Failed to save settings');
     } finally {
       setSavingSettings(false);
-    }
-  };
-
-  const handleTestConnection = async () => {
-    if (!smtpGmail || !smtpPassword || !receiverMail) {
-      alert('Please fill in SMTP Gmail, App Password, and Receiver Email before testing.');
-      return;
-    }
-    try {
-      setTestingConnection(true);
-      await api.post('/mail/test-connection', {
-        smtpGmail,
-        smtpPassword,
-        receiverMail
-      });
-      alert('Test Email sent successfully! Check the receiver inbox.');
-    } catch (err) {
-      console.error(err);
-      alert(err.response?.data?.error || 'SMTP Test failed. Check credentials and App Password.');
-    } finally {
-      setTestingConnection(false);
     }
   };
 
@@ -666,53 +638,15 @@ const Dashboard = () => {
                 <div className="input-group" style={{ marginBottom: 0 }}>
                   <label>Receiver Email for Converted Leads *</label>
                   <input
-                    type="email"
+                    type="text"
                     className="input-field"
                     value={receiverMail}
                     onChange={e => setReceiverMail(e.target.value)}
-                    placeholder="admin@example.com"
+                    placeholder="admin@example.com, backup@example.com"
                   />
                   <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 4 }}>
-                    Whenever a lead is successfully converted by an agent under you, an email with the transaction details will be sent to this address.
+                    Whenever a lead is successfully converted by an agent under you, an email with the transaction details will be sent to this address. (Separate multiple emails with commas; the first will be the main receiver and the rest will be CC'd).
                   </p>
-                </div>
-                <div className="input-group" style={{ marginBottom: 0 }}>
-                  <label>Admin SMTP Gmail (Sender) *</label>
-                  <input
-                    type="email"
-                    className="input-field"
-                    value={smtpGmail}
-                    onChange={e => setSmtpGmail(e.target.value)}
-                    placeholder="sender@gmail.com"
-                  />
-                </div>
-                <div className="input-group" style={{ marginBottom: 0 }}>
-                  <label>Gmail App Password *</label>
-                  <input
-                    type="password"
-                    className="input-field"
-                    value={smtpPassword}
-                    onChange={e => setSmtpPassword(e.target.value)}
-                    placeholder="16-character app password"
-                  />
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'flex-start', marginTop: 6 }}>
-                  <button 
-                    type="button" 
-                    className="btn" 
-                    style={{ 
-                      background: 'rgba(16,185,129,0.1)', 
-                      color: '#10b981', 
-                      border: '1px solid rgba(16,185,129,0.2)',
-                      padding: '8px 16px',
-                      fontSize: '0.85rem',
-                      fontWeight: 700
-                    }} 
-                    onClick={handleTestConnection} 
-                    disabled={testingConnection}
-                  >
-                    {testingConnection ? 'Testing SMTP Connection...' : 'Test SMTP Connection'}
-                  </button>
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 20 }}>
