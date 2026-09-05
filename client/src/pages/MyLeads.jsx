@@ -10,19 +10,52 @@ import WhatsAppIcon from '../components/WhatsAppIcon';
 import CreateLeadModal from '../components/CreateLeadModal';
 import './SuperAdminDashboard.css';
 
-const StatCard = ({ title, value, subtext, icon: Icon, accent, delay = 0, glow = false }) => (
-  <div className={`sa-glass-card sa-slide-up ${glow ? 'sa-glow' : ''}`} style={{ animationDelay: `${delay}ms`, '--card-accent': accent }}>
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', position: 'relative', zIndex: 2 }}>
-      <div>
-        <div className="sa-card-title">{title}</div>
-        <div className="sa-card-value">{value}</div>
-        <div className="sa-card-subtext">{subtext}</div>
+const StatCard = ({ title, value, subtext, icon: Icon, accent, delay = 0 }) => (
+  <div 
+    className="stat-card-widget animate-slide-up"
+    style={{ 
+      animationDelay: `${delay}ms`,
+      background: 'var(--bg-surface)',
+      border: '1px solid var(--border)',
+      borderRadius: '16px',
+      padding: '16px 20px',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: '12px',
+      boxShadow: 'var(--shadow-sm)',
+      position: 'relative',
+      overflow: 'hidden'
+    }}
+  >
+    <div style={{ flex: 1, minWidth: 0 }}>
+      <div style={{ fontSize: '0.68rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>
+        {title}
       </div>
-      <div className="sa-card-icon-wrapper" style={{ background: `${accent}15`, color: accent }}>
-        <Icon size={20} strokeWidth={2.2} />
+      <div style={{ fontSize: '1.45rem', fontWeight: 900, color: 'var(--text-primary)', lineHeight: 1.1, letterSpacing: '-0.02em', marginBottom: 4 }}>
+        {value}
+      </div>
+      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        {subtext}
       </div>
     </div>
-    <div className="sa-card-bg-blob" style={{ background: accent }} />
+    <div style={{ 
+      width: 44, 
+      height: 44, 
+      borderRadius: 12, 
+      background: `${accent}15`, 
+      color: accent,
+      display: 'flex', 
+      alignItems: 'center', 
+      justifyContent: 'center',
+      flexShrink: 0
+    }}>
+      <Icon size={22} strokeWidth={2.3} />
+    </div>
+    <div style={{
+      position: 'absolute', top: -10, right: -10, width: 60, height: 60,
+      borderRadius: '50%', background: accent, filter: 'blur(24px)', opacity: 0.1, pointerEvents: 'none'
+    }} />
   </div>
 );
 
@@ -427,8 +460,8 @@ const MyLeads = () => {
         </div>
       </div>
 
-      {/* ── STATS ROW ── */}
-      <div className="sa-stats-grid" style={{ marginBottom: 28 }}>
+      {/* ── STATS ROW (Single Line Compact Grid) ── */}
+      <div className="leads-stats-row" style={{ marginBottom: 24 }}>
         <StatCard
           title="TOTAL LEADS"
           value={stats?.allLeadsCount ?? stats?.totalLeads ?? 0}
@@ -436,7 +469,6 @@ const MyLeads = () => {
           icon={Star}
           accent="#6366f1"
           delay={0}
-          glow
         />
         <StatCard
           title="TOTAL REVENUE"
@@ -601,21 +633,39 @@ const MyLeads = () => {
                               fontSize: '0.78rem', 
                               height: 32, 
                               width: 'auto', 
-                              minWidth: 120, 
+                              minWidth: 130, 
                               fontWeight: 700,
                               cursor: isLocked ? 'not-allowed' : 'pointer' 
                             }} 
-                            value={lead.status || ''} 
+                            value="" 
                             disabled={isLocked} 
-                            onChange={(e) => handleStatusChange(lead, e.target.value, 'lead')}
+                            onChange={(e) => {
+                              if (e.target.value) {
+                                handleStatusChange(lead, e.target.value, 'lead');
+                              }
+                            }}
                           >
-                            <option value="">Set Status</option>
+                            <option value="" disabled>{lead.status ? `Status: ${lead.status}` : 'Set Status'}</option>
                             <option value="Converted">Converted</option>
                             <option value="Not Interested">Not Interested</option>
                             <option value="DNC/DND">DNC/DND</option>
                             <option value="Call Back">Call Back</option>
                             <option value="Others">Others</option>
                           </select>
+
+                          {lead.status && (
+                            <span 
+                              className={`badge ${
+                                lead.status === 'Converted' ? 'badge-success' :
+                                lead.status === 'Call Back' ? 'badge-cyan' :
+                                (lead.status === 'Not Interested' || lead.status === 'DNC/DND') ? 'badge-danger' :
+                                'badge-primary'
+                              }`}
+                              style={{ fontSize: '0.72rem', padding: '4px 8px', fontWeight: 800 }}
+                            >
+                              {lead.status}
+                            </span>
+                          )}
 
                           {lead.status === 'Call Back' && lead.callBackDt && (
                             <span className="badge badge-cyan" style={{ fontSize: '0.7rem', padding: '4px 8px' }}>
@@ -625,20 +675,37 @@ const MyLeads = () => {
                           {lead.transactionId && <span className="badge badge-success" style={{ fontSize: '0.7rem', padding: '4px 8px' }}>UTR: {lead.transactionId}</span>}
                         </div>
                         
-                        {/* ── Line 4: Remarks Box ── */}
-                        <div style={{ 
-                          fontSize: '0.78rem', 
-                          color: 'var(--text-secondary)', 
-                          background: 'var(--bg-surface-2)', 
-                          padding: '8px 12px', 
-                          borderRadius: 10, 
-                          border: '1px solid var(--border)',
-                          lineHeight: 1.4
-                        }}>
-                          <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Remarks: </span>
-                          <span style={{ fontStyle: 'italic' }}>
-                            {lead.remarks || lead.statusDetails || 'Uploaded via Lead Template'}
-                          </span>
+                        {/* ── Line 4: Remarks Box (Clickable to Edit/Re-enter Remarks) ── */}
+                        <div 
+                          onClick={() => !isLocked && handleStatusChange(lead, lead.status || 'Others', 'lead')}
+                          className={`remarks-box-container ${!isLocked ? 'remarks-editable-box' : ''}`}
+                          style={{ 
+                            fontSize: '0.78rem', 
+                            color: 'var(--text-secondary)', 
+                            background: 'var(--bg-surface-2)', 
+                            padding: '8px 12px', 
+                            borderRadius: 10, 
+                            border: '1px solid var(--border)',
+                            lineHeight: 1.4,
+                            cursor: isLocked ? 'default' : 'pointer',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            gap: 10
+                          }}
+                          title={!isLocked ? "Click to edit / re-enter remarks" : ""}
+                        >
+                          <div style={{ flex: 1 }}>
+                            <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Remarks: </span>
+                            <span style={{ fontStyle: 'italic' }}>
+                              {lead.remarks || lead.statusDetails || 'Uploaded via Lead Template'}
+                            </span>
+                          </div>
+                          {!isLocked && (
+                            <span style={{ fontSize: '0.7rem', color: 'var(--primary)', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 3, flexShrink: 0, opacity: 0.85 }}>
+                              ✏️ Edit Remarks
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -761,6 +828,39 @@ const MyLeads = () => {
       )}
 
       <style>{`
+        .leads-stats-row {
+          display: grid;
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+          gap: 16px;
+        }
+        @media (max-width: 1100px) {
+          .leads-stats-row {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
+        }
+        @media (max-width: 580px) {
+          .leads-stats-row {
+            grid-template-columns: 1fr;
+          }
+        }
+
+        .stat-card-widget {
+          transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+        .stat-card-widget:hover {
+          transform: translateY(-2px);
+          box-shadow: var(--shadow-md);
+        }
+
+        .remarks-editable-box {
+          cursor: pointer;
+          transition: background 0.2s, border-color 0.2s;
+        }
+        .remarks-editable-box:hover {
+          background: rgba(99, 102, 241, 0.08) !important;
+          border-color: rgba(99, 102, 241, 0.4) !important;
+        }
+
         .lead-list-item { transition: all 0.2s; }
         .lead-list-item:hover { transform: translateX(4px); box-shadow: var(--shadow-lg); }
         
@@ -905,13 +1005,17 @@ const MyLeads = () => {
                           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
                             <select
                               className="input-field"
-                              style={{ marginBottom: 0, padding: '2px 8px', fontSize: '0.7rem', height: 28, width: 'auto', minWidth: 120 }}
-                              value={h.status || ''}
+                              style={{ marginBottom: 0, padding: '2px 8px', fontSize: '0.7rem', height: 28, width: 'auto', minWidth: 130 }}
+                              value=""
                               disabled={h.status === 'Converted'}
                               title={h.status === 'Converted' ? "Locked conversions cannot be modified." : ""}
-                              onChange={(e) => handleStatusChange(h, e.target.value, 'lead')}
+                              onChange={(e) => {
+                                if (e.target.value) {
+                                  handleStatusChange(h, e.target.value, 'lead');
+                                }
+                              }}
                             >
-                              <option value="">Set Status</option>
+                              <option value="" disabled>{h.status ? `Status: ${h.status}` : 'Set Status'}</option>
                               <option value="Converted">Converted</option>
                               <option value="Not Interested">Not Interested</option>
                               <option value="DNC/DND">DNC/DND</option>
@@ -965,8 +1069,31 @@ const MyLeads = () => {
                             )}
                           </div>
                           {(h.statusDetails || h.remarks) && (
-                            <div style={{ marginTop: 12, fontSize: '0.8rem', fontStyle: 'italic', color: 'var(--text-secondary)', background: 'rgba(0,0,0,0.03)', padding: '8px 12px', borderRadius: 8 }}>
-                              "{h.statusDetails || h.remarks}"
+                            <div 
+                              onClick={() => h.status !== 'Converted' && handleStatusChange(h, h.status || 'Others', 'lead')}
+                              className={`remarks-box-container ${h.status !== 'Converted' ? 'remarks-editable-box' : ''}`}
+                              style={{ 
+                                marginTop: 12, 
+                                fontSize: '0.8rem', 
+                                color: 'var(--text-secondary)', 
+                                background: 'rgba(0,0,0,0.03)', 
+                                padding: '8px 12px', 
+                                borderRadius: 8,
+                                cursor: h.status === 'Converted' ? 'default' : 'pointer',
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center'
+                              }}
+                              title={h.status !== 'Converted' ? "Click to edit / re-enter remarks" : ""}
+                            >
+                              <span style={{ fontStyle: 'italic' }}>
+                                "{h.statusDetails || h.remarks}"
+                              </span>
+                              {h.status !== 'Converted' && (
+                                <span style={{ fontSize: '0.68rem', color: 'var(--primary)', fontWeight: 700, marginLeft: 8 }}>
+                                  ✏️ Edit
+                                </span>
+                              )}
                             </div>
                           )}
                         </div>
