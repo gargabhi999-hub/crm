@@ -374,9 +374,9 @@ const MyLeads = () => {
   const filtered = rawLeads.filter(lead => {
     if (!lead) return false;
     const fields = lead.fields || {};
-    const name = (fields.Name || fields.name || lead.name || '').toLowerCase();
-    const phone = (fields.Phone || fields.phone || fields.Mobile || lead.phone || '').toLowerCase();
-    const s = searchTerm.toLowerCase();
+    const name = String(fields.Name || fields.name || lead.name || '').toLowerCase();
+    const phone = String(fields.Phone || fields.phone || fields.Mobile || lead.phone || '').toLowerCase();
+    const s = String(searchTerm || '').toLowerCase();
     const matchesSearch = !searchTerm || name.includes(s) || phone.includes(s);
     const matchesSource = sourceFilter === 'all' || 
       (sourceFilter === 'created' ? fields.manuallyCreated : !fields.manuallyCreated);
