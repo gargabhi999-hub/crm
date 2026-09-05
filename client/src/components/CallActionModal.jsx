@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { X, PhoneCall, Star, Calendar, XCircle, RotateCw, Image } from 'lucide-react';
 import api from '../utils/api';
 
@@ -97,9 +98,9 @@ const CallActionModal = ({ lead, onClose, onSubmit }) => {
     });
   };
 
-  return (
-    <div className="call-modal-overlay animate-fade-in">
-      <div className="call-modal-content animate-scale-up">
+  return createPortal(
+    <div className="call-modal-overlay animate-fade-in" onClick={onClose}>
+      <div className="call-modal-content animate-scale-up" onClick={e => e.stopPropagation()}>
         <div className="call-modal-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <div className="status-icon-wrapper" style={{ background: '#3b82f615', color: '#3b82f6' }}>
@@ -240,14 +241,33 @@ const CallActionModal = ({ lead, onClose, onSubmit }) => {
 
       <style>{`
         .call-modal-overlay {
-          position: fixed; inset: 0; background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(12px);
-          display: flex; align-items: flex-start; justify-content: center; z-index: 99999; padding: 40px 16px;
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          width: 100vw;
+          height: 100vh;
+          background: rgba(15, 23, 42, 0.85);
+          backdrop-filter: blur(12px);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 1000000;
+          padding: 20px 16px;
           overflow-y: auto;
+          box-sizing: border-box;
         }
         .call-modal-content {
-          background: var(--bg-surface); width: 100%; max-width: 450px; border-radius: 24px;
-          box-shadow: 0 40px 100px -12px rgba(0, 0, 0, 0.6); border: 1px solid var(--border);
-          margin: 0 auto;
+          background: var(--bg-surface);
+          width: 100%;
+          max-width: 450px;
+          border-radius: 24px;
+          box-shadow: 0 40px 100px -12px rgba(0, 0, 0, 0.6);
+          border: 1px solid var(--border);
+          margin: auto;
+          max-height: calc(100vh - 40px);
+          overflow-y: auto;
         }
         .call-modal-header { padding: 24px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
         .call-modal-close { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 8px; border-radius: 10px; transition: all 0.2s; }
@@ -265,7 +285,8 @@ const CallActionModal = ({ lead, onClose, onSubmit }) => {
           transform: translateY(-2px);
         }
       `}</style>
-    </div>
+    </div>,
+    document.body
   );
 };
 

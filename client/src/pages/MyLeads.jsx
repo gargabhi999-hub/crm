@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useSocket } from '../contexts/SocketContext';
 import api from '../utils/api';
@@ -1029,8 +1030,8 @@ const MyLeads = () => {
       )}
 
       {/* ── HISTORY MODAL ── */}
-      {historyContact && (
-        <div className="status-modal-overlay animate-fade-in" onClick={() => { setHistoryContact(null); setSelectedHistoryIds([]); restoreScrollPosition(); }} style={{ zIndex: 999999 }}>
+      {historyContact && createPortal(
+        <div className="status-modal-overlay animate-fade-in" onClick={() => { setHistoryContact(null); setSelectedHistoryIds([]); restoreScrollPosition(); }} style={{ zIndex: 1000000 }}>
           <div className="status-modal-content animate-scale-up" style={{ maxWidth: 620 }} onClick={e => e.stopPropagation()}>
             <div className="status-modal-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', gap: 12 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -1132,13 +1133,13 @@ const MyLeads = () => {
                               <div style={{ fontSize: '1.1rem', fontWeight: 900, color: 'var(--text-primary)' }}>₹{(h.leadAmount || 0).toLocaleString()}</div>
                               {h.agentName && (
                                 <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2, display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '4px' }}>
-                                  <span>Handled by: {h.agentName}</span>
-                                  {h.fields?.manuallyCreated && (
-                                    <span style={{ background: 'rgba(245, 158, 11, 0.12)', color: '#f59e0b', border: '1px solid rgba(245, 158, 11, 0.25)', padding: '0 4px', borderRadius: '3px', fontWeight: 800, fontSize: '0.55rem', marginLeft: 4 }}>
-                                      ✍️ Manually added by {h.fields.createdByName || 'Staff'}
-                                    </span>
-                                  )}
-                                </div>
+                                <span>Handled by: {h.agentName}</span>
+                                {h.fields?.manuallyCreated && (
+                                  <span style={{ background: 'rgba(245, 158, 11, 0.12)', color: '#f59e0b', border: '1px solid rgba(245, 158, 11, 0.25)', padding: '0 4px', borderRadius: '3px', fontWeight: 800, fontSize: '0.55rem', marginLeft: 4 }}>
+                                    ✍️ Manually added by {h.fields.createdByName || 'Staff'}
+                                  </span>
+                                )}
+                              </div>
                               )}
 
                               {h.status === 'Call Back' && h.callBackDt && (
@@ -1199,7 +1200,8 @@ const MyLeads = () => {
               <button onClick={() => setHistoryContact(null)} className="btn btn-primary" style={{ width: '100%' }}>Close History</button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {showCreateModal && (
@@ -1214,8 +1216,8 @@ const MyLeads = () => {
       )}
 
       {/* ── DUPLICATE WARNING MODAL ── */}
-      {duplicateLead && (
-        <div className="status-modal-overlay animate-fade-in" style={{ zIndex: 999999 }}>
+      {duplicateLead && createPortal(
+        <div className="status-modal-overlay animate-fade-in" style={{ zIndex: 1000000 }}>
           <div className="status-modal-content animate-scale-up" style={{ maxWidth: 500, border: '2px solid var(--danger)' }}>
             <div className="status-modal-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', padding: '24px 24px 16px', borderBottom: '1px solid var(--border)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -1260,7 +1262,8 @@ const MyLeads = () => {
               <button onClick={() => setDuplicateLead(null)} className="btn btn-danger" style={{ width: '100%', padding: '12px 0', borderRadius: 12 }}>I Acknowledge</button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* ── TOAST NOTIFICATIONS ── */}

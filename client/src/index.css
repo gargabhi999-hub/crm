@@ -222,8 +222,8 @@ select.input-field{cursor:pointer;}
 /* ============================================================
    STATUS / HISTORY MODAL
    ============================================================ */
-.status-modal-overlay{position:fixed;inset:0;background:var(--bg-overlay);backdrop-filter:blur(8px);display:flex;align-items:flex-start;justify-content:center;z-index:3000;padding:40px 16px;overflow-y:auto;}
-.status-modal-content{background:var(--bg-surface);border:1px solid var(--glass-border);border-radius:var(--r-xl);width:100%;max-width:600px;box-shadow:var(--shadow-lg);display:flex;flex-direction:column;margin:0 auto;}
+.status-modal-overlay{position:fixed;top:0;left:0;right:0;bottom:0;width:100vw;height:100vh;background:var(--bg-overlay);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;z-index:1000000;padding:20px 16px;overflow-y:auto;box-sizing:border-box;}
+.status-modal-content{background:var(--bg-surface);border:1px solid var(--glass-border);border-radius:var(--r-xl);width:100%;max-width:600px;max-height:calc(100vh - 40px);overflow-y:auto;box-shadow:var(--shadow-lg);display:flex;flex-direction:column;margin:auto;}
 .status-modal-header{padding:16px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;}
 .status-modal-body{padding:20px;}
 .status-modal-footer{padding:14px 20px;border-top:1px solid var(--border);background:var(--bg-surface-2);}

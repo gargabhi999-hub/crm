@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Plus, Calendar, MessageSquare, CreditCard, RotateCw, User, Phone, Mail, Award, DollarSign } from 'lucide-react';
 import api from '../utils/api';
 import { useAuth } from '../contexts/AuthContext';
@@ -63,9 +64,9 @@ const CreateLeadModal = ({ onClose, onSave, submitting }) => {
     onSave(payload);
   };
 
-  return (
-    <div className="create-lead-overlay">
-      <div className="create-lead-content">
+  return createPortal(
+    <div className="create-lead-overlay" onClick={onClose}>
+      <div className="create-lead-content" onClick={e => e.stopPropagation()}>
         <div className="create-lead-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <div className="status-icon-wrapper" style={{ background: 'var(--primary-glow)', color: 'var(--primary)' }}>
@@ -271,15 +272,21 @@ const CreateLeadModal = ({ onClose, onSave, submitting }) => {
       <style>{`
         .create-lead-overlay {
           position: fixed;
-          inset: 0;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          width: 100vw;
+          height: 100vh;
           background: rgba(15, 23, 42, 0.75);
           backdrop-filter: blur(10px);
           display: flex;
-          align-items: flex-start;
+          align-items: center;
           justify-content: center;
-          z-index: 99999;
-          padding: 24px 16px;
+          z-index: 1000000;
+          padding: 20px 16px;
           overflow-y: auto;
+          box-sizing: border-box;
           animation: createLeadFadeIn 0.25s ease-out;
         }
         
@@ -290,8 +297,10 @@ const CreateLeadModal = ({ onClose, onSave, submitting }) => {
           border-radius: 24px;
           box-shadow: 0 40px 100px -12px rgba(0, 0, 0, 0.6);
           border: 1px solid var(--border);
-          margin-top: 16px; /* Elegant top-center gap */
-          animation: createLeadSlideDown 0.35s cubic-bezier(0.34, 1.56, 0.64, 1); /* Bounce slide down */
+          margin: auto;
+          max-height: calc(100vh - 40px);
+          overflow-y: auto;
+          animation: createLeadSlideDown 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
           overflow: hidden;
         }
 
@@ -345,7 +354,8 @@ const CreateLeadModal = ({ onClose, onSave, submitting }) => {
           to { transform: translateY(0); opacity: 1; }
         }
       `}</style>
-    </div>
+    </div>,
+    document.body
   );
 };
 

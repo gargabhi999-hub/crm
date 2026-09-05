@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Check, Calendar, MessageSquare, CreditCard, RotateCw, XCircle, ShieldAlert } from 'lucide-react';
 
 const LeadStatusModal = ({ lead, newStatus, onClose, onSave, submitting }) => {
@@ -61,7 +62,7 @@ const LeadStatusModal = ({ lead, newStatus, onClose, onSave, submitting }) => {
 
   const leadName = lead.fields?.Name || lead.fields?.name || lead.name || 'Lead';
 
-  return (
+  return createPortal(
     <div className="detail-modal-overlay animate-fade-in" onClick={onClose}>
       <div className="detail-modal-content animate-scale-up" onClick={e => e.stopPropagation()}>
         <div className="detail-modal-header">
@@ -163,15 +164,21 @@ const LeadStatusModal = ({ lead, newStatus, onClose, onSave, submitting }) => {
       <style>{`
         .detail-modal-overlay {
           position: fixed;
-          inset: 0;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          width: 100vw;
+          height: 100vh;
           background: rgba(15, 23, 42, 0.75);
           backdrop-filter: blur(8px);
           display: flex;
           align-items: center;
           justify-content: center;
-          z-index: 99999;
+          z-index: 1000000;
           padding: 20px 16px;
           overflow-y: auto;
+          box-sizing: border-box;
         }
         .detail-modal-content {
           background: var(--bg-surface);
@@ -180,7 +187,9 @@ const LeadStatusModal = ({ lead, newStatus, onClose, onSave, submitting }) => {
           border-radius: 20px;
           box-shadow: 0 30px 90px -10px rgba(0, 0, 0, 0.5);
           border: 1px solid var(--border);
-          margin: 0 auto;
+          margin: auto;
+          max-height: calc(100vh - 40px);
+          overflow-y: auto;
         }
         .detail-modal-header {
           padding: 20px 24px;
@@ -212,7 +221,8 @@ const LeadStatusModal = ({ lead, newStatus, onClose, onSave, submitting }) => {
           justify-content: flex-end;
         }
       `}</style>
-    </div>
+    </div>,
+    document.body
   );
 };
 
