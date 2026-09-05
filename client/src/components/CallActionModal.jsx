@@ -16,13 +16,6 @@ const CallActionModal = ({ lead, onClose, onSubmit }) => {
   });
   const [submitting, setSubmitting] = useState(false);
 
-  useEffect(() => {
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.body.style.overflow = '';
-    };
-  }, []);
-
   if (!lead) return null;
 
   const handleReceiptUpload = async (e) => {

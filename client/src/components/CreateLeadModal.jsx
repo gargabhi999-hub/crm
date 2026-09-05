@@ -22,8 +22,6 @@ const CreateLeadModal = ({ onClose, onSave, submitting }) => {
   });
 
   useEffect(() => {
-    document.body.style.overflow = 'hidden';
-    
     // Fetch agents if the user is a Team Leader, Admin, or Super Admin
     if (['tl', 'admin', 'superadmin'].includes(user?.role)) {
       const fetchAgents = async () => {
@@ -43,10 +41,6 @@ const CreateLeadModal = ({ onClose, onSave, submitting }) => {
       };
       fetchAgents();
     }
-    
-    return () => {
-      document.body.style.overflow = '';
-    };
   }, [user]);
 
   const handleSubmit = (e) => {
