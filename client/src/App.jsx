@@ -16,6 +16,7 @@ import Layout from './components/Layout';
 import AppointmentNotifier from './components/AppointmentNotifier';
 import DueTaskModal from './components/DueTaskModal';
 import AgentLogs from './pages/AgentLogs';
+import ErrorBoundary from './components/ErrorBoundary';
 
 // Protect routes based on authentication
 const ProtectedRoute = ({ children }) => {
@@ -42,31 +43,33 @@ function App() {
   }, []);
 
   return (
-    <Router>
-      <Routes>
-        <Route path="/login" element={<Login />} />
-        
-        {/* Protected Routes wrapped in Layout */}
-        <Route element={<ProtectedRoute />}>
-          <Route element={<Layout />}>
-            <Route path="/" element={<Navigate to="/dashboard" replace />} />
-            <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/users" element={<Users />} />
-            <Route path="/upload" element={<Upload />} />
-            <Route path="/contacts" element={<Contacts filterType="all" />} />
-            <Route path="/workflow" element={<Workflow />} />
-            <Route path="/leads" element={<MyLeads />} />
-            <Route path="/appointments" element={<MyAppointments />} />
-            <Route path="/callbacks" element={<MyCallbacks />} />
-            <Route path="/hungup" element={<HungUp />} />
-            <Route path="/reports" element={<Reports />} />
-            <Route path="/agent-logs" element={<AgentLogs />} />
+    <ErrorBoundary>
+      <Router>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          
+          {/* Protected Routes wrapped in Layout */}
+          <Route element={<ProtectedRoute />}>
+            <Route element={<Layout />}>
+              <Route path="/" element={<Navigate to="/dashboard" replace />} />
+              <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="/users" element={<Users />} />
+              <Route path="/upload" element={<Upload />} />
+              <Route path="/contacts" element={<Contacts filterType="all" />} />
+              <Route path="/workflow" element={<Workflow />} />
+              <Route path="/leads" element={<MyLeads />} />
+              <Route path="/appointments" element={<MyAppointments />} />
+              <Route path="/callbacks" element={<MyCallbacks />} />
+              <Route path="/hungup" element={<HungUp />} />
+              <Route path="/reports" element={<Reports />} />
+              <Route path="/agent-logs" element={<AgentLogs />} />
+            </Route>
           </Route>
-        </Route>
-      </Routes>
-      <AppointmentNotifier />
-      <DueTaskModal />
-    </Router>
+        </Routes>
+        <AppointmentNotifier />
+        <DueTaskModal />
+      </Router>
+    </ErrorBoundary>
   );
 }
 

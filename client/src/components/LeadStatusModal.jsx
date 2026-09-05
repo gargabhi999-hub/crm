@@ -5,7 +5,15 @@ const LeadStatusModal = ({ lead, newStatus, onClose, onSave, submitting }) => {
   const [formData, setFormData] = useState({
     leadAmount: lead?.leadAmount || '',
     transactionId: lead?.transactionId || '',
-    callBackDt: lead?.callBackDt ? new Date(lead.callBackDt).toISOString().slice(0, 16) : '',
+    callBackDt: (() => {
+      try {
+        if (!lead?.callBackDt) return '';
+        const d = new Date(lead.callBackDt);
+        return isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 16);
+      } catch (e) {
+        return '';
+      }
+    })(),
     statusDetails: lead?.statusDetails || '',
     remarks: '',
   });
@@ -14,7 +22,12 @@ const LeadStatusModal = ({ lead, newStatus, onClose, onSave, submitting }) => {
     e.preventDefault();
     let payload = { ...formData };
     if (payload.callBackDt) {
-      payload.callBackDt = new Date(payload.callBackDt).toISOString();
+      try {
+        const d = new Date(payload.callBackDt);
+        payload.callBackDt = isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
+      } catch (e) {
+        payload.callBackDt = new Date().toISOString();
+      }
     }
     if (payload.leadAmount) {
       payload.leadAmount = parseFloat(payload.leadAmount) || 0;

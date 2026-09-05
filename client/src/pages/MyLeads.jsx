@@ -26,6 +26,26 @@ const StatCard = ({ title, value, subtext, icon: Icon, accent, delay = 0, glow =
   </div>
 );
 
+const formatSafeDate = (val) => {
+  if (!val) return 'N/A';
+  try {
+    const d = new Date(val);
+    return isNaN(d.getTime()) ? 'N/A' : d.toLocaleDateString();
+  } catch (e) {
+    return 'N/A';
+  }
+};
+
+const formatSafeDateTime = (val) => {
+  if (!val) return '';
+  try {
+    const d = new Date(val);
+    return isNaN(d.getTime()) ? '' : d.toLocaleString([], { year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+  } catch (e) {
+    return '';
+  }
+};
+
 const MyLeads = () => {
   const { user } = useAuth();
   const { socket } = useSocket();
@@ -539,7 +559,7 @@ const MyLeads = () => {
                           </span>
                           <span style={{ color: 'var(--border)', opacity: 0.8 }}>|</span>
                           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--text-muted)', fontSize: '0.82rem', fontWeight: 500 }}>
-                            <Calendar size={13} /> {new Date(lead.lastModified || lead.createdAt).toLocaleDateString()}
+                            <Calendar size={13} /> {formatSafeDate(lead.lastModified || lead.createdAt)}
                           </span>
                           {lead.leadsCount > 1 && (
                             <button onClick={() => fetchHistory(phone, name)} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--violet)', fontWeight: 700, background: 'rgba(139, 92, 246, 0.1)', border: '1px solid rgba(139, 92, 246, 0.2)', borderRadius: 6, padding: '2px 8px', fontSize: '0.72rem', cursor: 'pointer' }}>
@@ -599,7 +619,7 @@ const MyLeads = () => {
 
                           {lead.status === 'Call Back' && lead.callBackDt && (
                             <span className="badge badge-cyan" style={{ fontSize: '0.7rem', padding: '4px 8px' }}>
-                              <Calendar size={11} /> {new Date(lead.callBackDt).toLocaleString([], { year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}
+                              <Calendar size={11} /> {formatSafeDateTime(lead.callBackDt)}
                             </span>
                           )}
                           {lead.transactionId && <span className="badge badge-success" style={{ fontSize: '0.7rem', padding: '4px 8px' }}>UTR: {lead.transactionId}</span>}
@@ -857,7 +877,7 @@ const MyLeads = () => {
                   {historyData.slice().sort((a, b) => {
                     if (a.status === 'Converted' && b.status !== 'Converted') return 1;
                     if (a.status !== 'Converted' && b.status === 'Converted') return -1;
-                    return new Date(b.createdAt) - new Date(a.createdAt);
+                    return (new Date(b.createdAt || 0).getTime() || 0) - (new Date(a.createdAt || 0).getTime() || 0);
                   }).map((h, i) => {
                     const hId = h._id || h.id;
                     const isHistorySelected = selectedHistoryIds.includes(hId);
@@ -899,7 +919,7 @@ const MyLeads = () => {
                               <option value="Others">Others</option>
                             </select>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{new Date(h.createdAt).toLocaleString()}</span>
+                              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{formatSafeDateTime(h.createdAt)}</span>
                               {h.status !== 'Converted' && (
                                 <button
                                   className="btn btn-icon history-upload-btn"
@@ -928,12 +948,12 @@ const MyLeads = () => {
 
                               {h.status === 'Call Back' && h.callBackDt && (
                                 <div style={{ fontSize: '0.75rem', color: 'var(--cyan)', fontWeight: 700, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
-                                  <Calendar size={12} /> Callback: {new Date(h.callBackDt).toLocaleString()}
+                                  <Calendar size={12} /> Callback: {formatSafeDateTime(h.callBackDt)}
                                 </div>
                               )}
                               {h.status === 'Appointment' && h.appointmentDt && (
                                 <div style={{ fontSize: '0.75rem', color: 'var(--violet)', fontWeight: 700, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
-                                  <Calendar size={12} /> Appointment: {new Date(h.appointmentDt).toLocaleString()}
+                                  <Calendar size={12} /> Appointment: {formatSafeDateTime(h.appointmentDt)}
                                 </div>
                               )}
                             </div>
