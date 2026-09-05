@@ -1,18 +1,26 @@
 import React, { useState, useEffect } from 'react';
-import { X, Check, Calendar, MessageSquare, CreditCard, RotateCw } from 'lucide-react';
+import { X, Check, Calendar, MessageSquare, CreditCard, RotateCw, XCircle, ShieldAlert } from 'lucide-react';
 
 const LeadStatusModal = ({ lead, newStatus, onClose, onSave, submitting }) => {
   const [formData, setFormData] = useState({
-    transactionId: lead.transactionId || '',
-    callBackDt: lead.callBackDt ? new Date(lead.callBackDt).toISOString().slice(0, 16) : '',
-    statusDetails: lead.statusDetails || '',
-    remarks: lead.remarks || '',
+    leadAmount: lead?.leadAmount || '',
+    transactionId: lead?.transactionId || '',
+    callBackDt: lead?.callBackDt ? new Date(lead.callBackDt).toISOString().slice(0, 16) : '',
+    statusDetails: lead?.statusDetails || '',
+    remarks: '',
   });
 
   useEffect(() => {
-    document.body.style.overflow = 'hidden';
+    // Preserve current scroll position on body
+    const scrollY = window.scrollY;
+    document.body.style.position = 'fixed';
+    document.body.style.top = `-${scrollY}px`;
+    document.body.style.width = '100%';
     return () => {
-      document.body.style.overflow = '';
+      document.body.style.position = '';
+      document.body.style.top = '';
+      document.body.style.width = '';
+      window.scrollTo(0, scrollY);
     };
   }, []);
 
@@ -22,6 +30,9 @@ const LeadStatusModal = ({ lead, newStatus, onClose, onSave, submitting }) => {
     if (payload.callBackDt) {
       payload.callBackDt = new Date(payload.callBackDt).toISOString();
     }
+    if (payload.leadAmount) {
+      payload.leadAmount = parseFloat(payload.leadAmount) || 0;
+    }
     onSave(payload);
   };
 
@@ -29,45 +40,64 @@ const LeadStatusModal = ({ lead, newStatus, onClose, onSave, submitting }) => {
 
   const getTitle = () => {
     switch (newStatus) {
-      case 'Converted': return 'Complete Conversion';
+      case 'Converted': return 'Mark as Converted';
       case 'Call Back': return 'Schedule Callback';
-      case 'Others': return 'Additional Details';
-      default: return `Update Status: ${newStatus}`;
+      case 'Not Interested': return 'Mark as Not Interested';
+      case 'DNC/DND': return 'Mark as DNC / DND';
+      case 'Others': return 'Set Status: Others';
+      default: return `Update Status to ${newStatus}`;
     }
   };
 
   const getIcon = () => {
     switch (newStatus) {
-      case 'Converted': return <CreditCard className="text-success" size={24} />;
-      case 'Call Back': return <Calendar className="text-cyan" size={24} />;
-      case 'Others': return <MessageSquare className="text-primary" size={24} />;
-      default: return <Check className="text-primary" size={24} />;
+      case 'Converted': return <CreditCard className="text-success" size={24} color="#10b981" />;
+      case 'Call Back': return <Calendar className="text-cyan" size={24} color="#06b6d4" />;
+      case 'Not Interested': return <XCircle size={24} color="#ef4444" />;
+      case 'DNC/DND': return <ShieldAlert size={24} color="#f59e0b" />;
+      case 'Others': return <MessageSquare className="text-primary" size={24} color="#6366f1" />;
+      default: return <Check className="text-primary" size={24} color="#6366f1" />;
     }
   };
 
+  const leadName = lead.fields?.Name || lead.fields?.name || lead.name || 'Lead';
+
   return (
-    <div className="detail-modal-overlay animate-fade-in">
-      <div className="detail-modal-content animate-scale-up">
+    <div className="detail-modal-overlay animate-fade-in" onClick={onClose}>
+      <div className="detail-modal-content animate-scale-up" onClick={e => e.stopPropagation()}>
         <div className="detail-modal-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div className="status-icon-wrapper">
+            <div className="status-icon-wrapper" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 44, height: 44, borderRadius: 12, background: 'var(--bg-surface-2)' }}>
               {getIcon()}
             </div>
             <div>
-              <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 900 }}>{getTitle()}</h3>
-              <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)' }}>Updating {lead.fields?.Name || 'Lead'}</p>
+              <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800 }}>{getTitle()}</h3>
+              <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)' }}>Updating {leadName}</p>
             </div>
           </div>
-          <button onClick={onClose} className="detail-modal-close">
+          <button onClick={onClose} className="detail-modal-close" type="button">
             <X size={20} />
           </button>
         </div>
 
         <form onSubmit={handleSubmit} className="detail-modal-body">
           {newStatus === 'Converted' && (
-            <div className="input-group">
-              <label htmlFor="modalTransactionId">Transaction ID / UTR *</label>
-              <div style={{ position: 'relative' }}>
+            <>
+              <div className="input-group" style={{ marginBottom: 14 }}>
+                <label htmlFor="modalAmount" style={{ fontSize: '0.8rem', fontWeight: 700, marginBottom: 4, display: 'block' }}>Conversion Amount (₹)</label>
+                <input 
+                  id="modalAmount"
+                  type="number" 
+                  step="any"
+                  className="input-field" 
+                  value={formData.leadAmount} 
+                  onChange={e => setFormData(p => ({ ...p, leadAmount: e.target.value }))}
+                  placeholder="e.g. 3000"
+                  style={{ marginBottom: 0 }}
+                />
+              </div>
+              <div className="input-group" style={{ marginBottom: 14 }}>
+                <label htmlFor="modalTransactionId" style={{ fontSize: '0.8rem', fontWeight: 700, marginBottom: 4, display: 'block' }}>Transaction ID / UTR *</label>
                 <input 
                   id="modalTransactionId"
                   type="text" 
@@ -75,63 +105,57 @@ const LeadStatusModal = ({ lead, newStatus, onClose, onSave, submitting }) => {
                   value={formData.transactionId} 
                   onChange={e => setFormData(p => ({ ...p, transactionId: e.target.value }))}
                   required
-                  placeholder="Enter payment reference..."
+                  placeholder="Enter payment reference ID / UTR..."
                   autoFocus
-                />
-              </div>
-            </div>
-          )}
-
-          {newStatus === 'Call Back' && (
-            <>
-              <div className="input-group">
-                <label htmlFor="modalCallBackDt">Next Callback Date & Time *</label>
-                <input 
-                  id="modalCallBackDt"
-                  type="datetime-local" 
-                  className="input-field" 
-                  value={formData.callBackDt} 
-                  min={new Date(new Date().getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16)}
-                  onChange={e => setFormData(p => ({ ...p, callBackDt: e.target.value }))}
-                  required
-                  autoFocus
-                />
-              </div>
-              <div className="input-group">
-                <label htmlFor="modalRemarks">Remarks / Notes *</label>
-                <textarea 
-                  id="modalRemarks"
-                  className="input-field" 
-                  rows="3"
-                  value={formData.remarks} 
-                  onChange={e => setFormData(p => ({ ...p, remarks: e.target.value }))}
-                  required
-                  placeholder="Enter followup notes..."
+                  style={{ marginBottom: 0 }}
                 />
               </div>
             </>
           )}
 
-          {newStatus === 'Others' && (
-            <div className="input-group">
-              <label htmlFor="modalRemarks">Remarks / Details *</label>
-              <textarea 
-                id="modalRemarks"
+          {newStatus === 'Call Back' && (
+            <div className="input-group" style={{ marginBottom: 14 }}>
+              <label htmlFor="modalCallBackDt" style={{ fontSize: '0.8rem', fontWeight: 700, marginBottom: 4, display: 'block' }}>Next Callback Date & Time *</label>
+              <input 
+                id="modalCallBackDt"
+                type="datetime-local" 
                 className="input-field" 
-                rows="3"
-                value={formData.remarks} 
-                onChange={e => setFormData(p => ({ ...p, remarks: e.target.value }))}
+                value={formData.callBackDt} 
+                min={new Date(new Date().getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16)}
+                onChange={e => setFormData(p => ({ ...p, callBackDt: e.target.value }))}
                 required
-                placeholder="Enter details or remarks..."
                 autoFocus
+                style={{ marginBottom: 0 }}
               />
             </div>
           )}
 
+          <div className="input-group" style={{ marginBottom: 0 }}>
+            <label htmlFor="modalRemarks" style={{ fontSize: '0.8rem', fontWeight: 700, marginBottom: 4, display: 'block' }}>
+              {newStatus === 'Not Interested' || newStatus === 'DNC/DND' ? 'Reason / Remarks *' : 'Remarks / Notes *'}
+            </label>
+            <textarea 
+              id="modalRemarks"
+              className="input-field" 
+              rows="3"
+              value={formData.remarks} 
+              onChange={e => setFormData(p => ({ ...p, remarks: e.target.value }))}
+              required
+              placeholder={
+                newStatus === 'Not Interested' ? 'Why is the customer not interested? (e.g. Financial issue, high price, etc.)' :
+                newStatus === 'DNC/DND' ? 'Enter DNC / Do Not Call reason...' :
+                newStatus === 'Call Back' ? 'Notes for next follow-up call...' :
+                'Enter detailed remarks regarding this lead...'
+              }
+              autoFocus={newStatus !== 'Converted' && newStatus !== 'Call Back'}
+              style={{ marginBottom: 0, resize: 'vertical' }}
+            />
+          </div>
+
           <div className="detail-modal-footer">
             <button type="button" onClick={onClose} className="btn btn-outline" disabled={submitting}>Cancel</button>
             <button type="submit" className="btn btn-primary" disabled={submitting}>
-              {submitting ? <RotateCw className="animate-spin" size={18} /> : 'Save Changes'}
+              {submitting ? <RotateCw className="animate-spin" size={18} /> : 'Save Status & Remarks'}
             </button>
           </div>
         </form>
@@ -141,26 +165,26 @@ const LeadStatusModal = ({ lead, newStatus, onClose, onSave, submitting }) => {
         .detail-modal-overlay {
           position: fixed;
           inset: 0;
-          background: rgba(15, 23, 42, 0.85);
-          backdrop-filter: blur(12px);
+          background: rgba(15, 23, 42, 0.75);
+          backdrop-filter: blur(8px);
           display: flex;
-          align-items: flex-start;
+          align-items: center;
           justify-content: center;
-          z-index: 99999; /* Extremely high to beat any other modal */
-          padding: 40px 16px;
+          z-index: 99999;
+          padding: 20px 16px;
           overflow-y: auto;
         }
         .detail-modal-content {
           background: var(--bg-surface);
           width: 100%;
-          max-width: 450px;
-          border-radius: 24px;
-          box-shadow: 0 40px 100px -12px rgba(0, 0, 0, 0.6);
+          max-width: 460px;
+          border-radius: 20px;
+          box-shadow: 0 30px 90px -10px rgba(0, 0, 0, 0.5);
           border: 1px solid var(--border);
           margin: 0 auto;
         }
         .detail-modal-header {
-          padding: 24px;
+          padding: 20px 24px;
           border-bottom: 1px solid var(--border);
           display: flex;
           justify-content: space-between;
@@ -171,8 +195,8 @@ const LeadStatusModal = ({ lead, newStatus, onClose, onSave, submitting }) => {
           border: none;
           color: var(--text-muted);
           cursor: pointer;
-          padding: 8px;
-          border-radius: 10px;
+          padding: 6px;
+          border-radius: 8px;
           transition: all 0.2s;
         }
         .detail-modal-close:hover {
@@ -180,12 +204,12 @@ const LeadStatusModal = ({ lead, newStatus, onClose, onSave, submitting }) => {
           color: var(--text-primary);
         }
         .detail-modal-body {
-          padding: 24px;
+          padding: 20px 24px;
         }
         .detail-modal-footer {
-          margin-top: 24px;
+          margin-top: 20px;
           display: flex;
-          gap: 12px;
+          gap: 10px;
           justify-content: flex-end;
         }
       `}</style>

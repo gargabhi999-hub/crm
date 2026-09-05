@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useSocket } from '../contexts/SocketContext';
 import api from '../utils/api';
 import { Star, TrendingUp, Users, Calendar, Search, PhoneCall, Award, Target, Trash2, X, CheckSquare, Square, RotateCw, MessageCircle, Image as ImageIcon, Loader2, Plus, AlertTriangle } from 'lucide-react';
 import LeadStatusModal from '../components/LeadStatusModal';
 import CallActionModal from '../components/CallActionModal';
+import ReceiptUploadModal from '../components/ReceiptUploadModal';
 import WhatsAppIcon from '../components/WhatsAppIcon';
 import CreateLeadModal from '../components/CreateLeadModal';
 import './SuperAdminDashboard.css';
@@ -44,19 +45,18 @@ const MyLeads = () => {
   const [limit] = useState(50);
   const [totalPages, setTotalPages] = useState(1);
 
-  // Modal State
+  // Status Modal State
   const [modalLead, setModalLead] = useState(null);
   const [modalStatus, setModalStatus] = useState(null);
   const [modalSubmitting, setModalSubmitting] = useState(false);
   
+  // Receipt Conversion Modal State
+  const [receiptModalLead, setReceiptModalLead] = useState(null);
+
   // Call Action Modal State
   const [callActionLead, setCallActionLead] = useState(null);
 
-  // Auto-extraction State
-  const [extractingLeadId, setExtractingLeadId] = useState(null);
-  const fileInputRef = React.useRef(null);
-  const [uploadTargetLead, setUploadTargetLead] = useState(null);
-
+  // History State
   const [historyContact, setHistoryContact] = useState(null);
   const [historyData, setHistoryData] = useState([]);
   const [selectedHistoryIds, setSelectedHistoryIds] = useState([]);
@@ -72,9 +72,34 @@ const MyLeads = () => {
     }, 5000);
   };
 
-  const fetchData = async () => {
+  // Scroll Position Persistence
+  useEffect(() => {
+    const handleScroll = () => {
+      if (window.scrollY > 0) {
+        sessionStorage.setItem('myleads_scroll_pos', window.scrollY.toString());
+      }
+    };
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  const restoreScrollPosition = () => {
+    const saved = sessionStorage.getItem('myleads_scroll_pos');
+    if (saved) {
+      const top = parseInt(saved, 10);
+      if (!isNaN(top) && top > 0) {
+        requestAnimationFrame(() => {
+          window.scrollTo({ top, behavior: 'instant' });
+        });
+      }
+    }
+  };
+
+  const fetchData = async (silent = false) => {
     try {
-      setLoading(true);
+      if (!silent && leads.length === 0) {
+        setLoading(true);
+      }
       const params = new URLSearchParams();
       if (searchTerm) params.append('search', searchTerm);
       if (sourceFilter !== 'all') params.append('source', sourceFilter);
@@ -89,6 +114,10 @@ const MyLeads = () => {
       setLeads(leadsRes.data.leads || leadsRes.data);
       if (leadsRes.data.pages) setTotalPages(leadsRes.data.pages);
       setStats(statsRes.data);
+
+      if (!silent) {
+        setTimeout(restoreScrollPosition, 60);
+      }
     } catch (err) {
       console.error('Fetch leads failed', err);
     } finally {
@@ -112,9 +141,11 @@ const MyLeads = () => {
   useEffect(() => {
     fetchData();
     if (!socket) return;
-    socket.on('contact_disposed', fetchData);
-    socket.on('dashboard_update', fetchData);
-    socket.on('contacts_updated', fetchData);
+    const handleSilentSync = () => fetchData(true);
+
+    socket.on('contact_disposed', handleSilentSync);
+    socket.on('dashboard_update', handleSilentSync);
+    socket.on('contacts_updated', handleSilentSync);
 
     const emailStatusHandler = (data) => {
       if (data.agentId === user._id || data.agentId === user.id) {
@@ -128,95 +159,38 @@ const MyLeads = () => {
     socket.on('email_status', emailStatusHandler);
 
     return () => {
-      socket.off('contact_disposed', fetchData);
-      socket.off('dashboard_update', fetchData);
-      socket.off('contacts_updated', fetchData);
+      socket.off('contact_disposed', handleSilentSync);
+      socket.off('dashboard_update', handleSilentSync);
+      socket.off('contacts_updated', handleSilentSync);
       socket.off('email_status', emailStatusHandler);
     };
   }, [socket, page, limit, searchTerm, sourceFilter, statusFilter]);
 
-  useEffect(() => {
-    if (modalLead || callActionLead || historyContact) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = '';
-    }
-    return () => {
-      document.body.style.overflow = '';
-    };
-  }, [modalLead, callActionLead, historyContact]);
+  const toggleSelect = (id) => {
+    setSelectedIds(prev =>
+      prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
+    );
+  };
 
-  const handleImageSelect = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file || !uploadTargetLead) return;
-    
-    e.target.value = '';
-    setExtractingLeadId(uploadTargetLead._id);
-    
-    try {
-      const reader = new FileReader();
-      reader.onloadend = async () => {
-        try {
-          const imageBase64 = reader.result;
-          const res = await api.post('/leads/extract-transaction', { imageBase64 });
-          
-          if (res.data.success && res.data.transactionId) {
-             const txId = res.data.transactionId;
-             const amount = res.data.amount;
-             
-             const updatePayload = {
-               status: 'Converted',
-               transactionId: txId,
-               remarks: `[Auto-converted via receipt scan] Transaction ID: ${txId}`,
-               receiptImage: imageBase64
-             };
-             
-             if (amount && amount !== uploadTargetLead.leadAmount) {
-                 updatePayload.leadAmount = amount;
-                 updatePayload.remarks += ` (Amount updated to ₹${amount})`;
-             }
-             
-             await api.put(`/leads/${uploadTargetLead._id}`, updatePayload);
-             
-             if (uploadTargetLead.contactId) {
-               const contactUpdate = { status: 'Converted', receiptImage: imageBase64 };
-               if (amount && amount !== uploadTargetLead.leadAmount) {
-                   contactUpdate.leadAmount = amount;
-               }
-               var contactRes = await api.put(`/contacts/${uploadTargetLead.contactId}/status`, contactUpdate);
-             }
-             
-             fetchData();
-             if (historyContact && historyData) {
-               fetchHistory(historyContact.phone, historyContact.name);
-             }
-             
-             let alertMsg = `Successfully extracted transaction ID: ${txId}${amount ? ` and amount: ₹${amount}` : ''}\nStatus updated to Converted.`;
-             addToast(alertMsg, 'success');
-          } else {
-             alert(res.data.error || 'Failed to extract transaction ID');
-          }
-        } catch (err) {
-          console.error(err);
-          alert('Error extracting transaction');
-        } finally {
-          setExtractingLeadId(null);
-          setUploadTargetLead(null);
-        }
-      };
-      reader.readAsDataURL(file);
-    } catch (err) {
-      console.error(err);
-      setExtractingLeadId(null);
-      setUploadTargetLead(null);
+  const toggleSelectAll = () => {
+    if (selectedIds.length === leads.length) {
+      setSelectedIds([]);
+    } else {
+      setSelectedIds(leads.map(lead => lead._id));
     }
+  };
+
+  const toggleSelectHistory = (id) => {
+    setSelectedHistoryIds(prev =>
+      prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
+    );
   };
 
   const handleDelete = async (id) => {
     if (!window.confirm('Are you sure you want to delete this lead? This will remove all associated data.')) return;
     try {
       await api.delete(`/leads/${id}`);
-      fetchData();
+      fetchData(true);
       setSelectedIds(prev => prev.filter(i => i !== id));
     } catch (err) {
       alert(err.response?.data?.error || 'Delete failed');
@@ -228,7 +202,7 @@ const MyLeads = () => {
     try {
       await api.post('/leads/bulk-delete', { ids: selectedIds });
       setSelectedIds([]);
-      fetchData();
+      fetchData(true);
     } catch (err) {
       alert('Bulk delete failed');
     }
@@ -240,7 +214,7 @@ const MyLeads = () => {
       await api.post('/leads/bulk-delete', { ids: selectedHistoryIds });
       setSelectedHistoryIds([]);
       addToast('Selected history records deleted successfully!', 'success');
-      fetchData();
+      fetchData(true);
       if (historyContact) {
         fetchHistory(historyContact.phone, historyContact.name);
       }
@@ -262,28 +236,10 @@ const MyLeads = () => {
     }
   };
 
-  const handleStatusChange = async (target, newStatus, type = 'contact') => {
-    // If it's a special status requiring input, show modal
-    if (['Converted', 'Call Back', 'Others'].includes(newStatus)) {
-      setModalLead({ ...target, type });
-      setModalStatus(newStatus);
-      return;
-    }
-
-    // Simple status update
-    try {
-      if (type === 'lead') {
-        await api.put(`/leads/${target._id}`, { status: newStatus });
-        if (historyContact) fetchHistory(historyContact.phone, historyContact.name);
-      } else {
-        // Main dashboard updates use contactId
-        const cid = target.contactId || target._id;
-        await api.put(`/contacts/${cid}/status`, { status: newStatus });
-      }
-      fetchData();
-    } catch (err) {
-      alert(err.response?.data?.error || 'Update failed');
-    }
+  const handleStatusChange = (target, newStatus, type = 'lead') => {
+    if (!newStatus) return;
+    setModalLead({ ...target, type });
+    setModalStatus(newStatus);
   };
 
   const handleModalSave = async (formData) => {
@@ -309,21 +265,20 @@ const MyLeads = () => {
             alert('Existing callback updated successfully!');
             setModalLead(null);
             setModalStatus(null);
-            fetchData();
+            fetchData(true);
             return;
           }
         }
       }
 
-      let finalRes;
       if (modalLead.type === 'lead') {
-        finalRes = await api.put(`/leads/${modalLead._id}`, {
+        await api.put(`/leads/${modalLead._id}`, {
           status: modalStatus,
           ...formData
         });
         if (historyContact) fetchHistory(historyContact.phone, historyContact.name);
       } else {
-        finalRes = await api.put(`/contacts/${cid}/status`, {
+        await api.put(`/contacts/${cid}/status`, {
           status: modalStatus,
           ...formData
         });
@@ -331,11 +286,13 @@ const MyLeads = () => {
       
       if (modalStatus === 'Converted') {
         addToast('Lead Converted! Email will be sent in background.', 'success');
+      } else {
+        addToast(`Lead status updated to ${modalStatus}!`, 'success');
       }
       
       setModalLead(null);
       setModalStatus(null);
-      fetchData();
+      fetchData(true);
     } catch (err) {
       alert(err.response?.data?.error || 'Update failed');
     } finally {
@@ -348,17 +305,16 @@ const MyLeads = () => {
     try {
       const res = await api.post('/leads/create', formData);
       if (res.data.success) {
+        setShowCreateModal(false);
+        fetchData();
         addToast('Lead created successfully!', 'success');
         
-        if (res.data.duplicateFound) {
+        if (res.data.hasDuplicates && res.data.duplicates?.length > 0) {
           setDuplicateLead({
-            newLead: res.data.lead,
+            lead: res.data.lead,
             duplicates: res.data.duplicates
           });
         }
-        
-        setShowCreateModal(false);
-        fetchData();
       }
     } catch (err) {
       alert(err.response?.data?.error || 'Failed to create lead');
@@ -367,116 +323,124 @@ const MyLeads = () => {
     }
   };
 
-  const toggleSelect = (id) => {
-    setSelectedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
-  };
-
-  const toggleSelectHistory = (id) => {
-    setSelectedHistoryIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
-  };
-
-  const handleCallActionSubmit = async (payload) => {
+  const handleCallActionSubmit = async (data) => {
     try {
       const cid = callActionLead.contactId || callActionLead._id;
+      const res = await api.post(`/leads/${cid}/clone-and-dispose`, data);
       
-      if (payload.action === 'Followup' || (payload.action === 'Lead' && payload.status === 'Call Back')) {
-        const checkRes = await api.get(`/contacts/${cid}/check-callback`);
-        if (checkRes.data.exists) {
-          const existing = checkRes.data.callback;
-          const choice = window.confirm(
-            `A callback already exists for this contact scheduled for ${new Date(existing.callBackDt).toLocaleString()}.\n\n` +
-            `Click OK to EDIT the existing callback.\n` +
-            `Click CANCEL to CREATE A NEW separate callback record.`
-          );
-
-          if (choice) {
-            await api.put(`/leads/callbacks/${existing._id}`, {
-              callBackDt: payload.callBackDt,
-              remarks: payload.remarks || `[Call Action: ${payload.action}]`
-            });
-            alert('Existing callback updated successfully!');
-            setCallActionLead(null);
-            fetchData();
-            return;
-          }
-        }
+      if (res.data.success) {
+        setCallActionLead(null);
+        fetchData(true);
+        addToast(`Call action saved. Lead status: ${data.status || 'Updated'}`, 'success');
       }
-
-      await api.post(`/leads/${callActionLead._id}/clone-and-dispose`, payload);
-      setCallActionLead(null);
-      fetchData(); // Refresh the list
-      alert('Action logged successfully on a new clone of this contact!');
     } catch (err) {
-      alert(err.response?.data?.error || 'Action failed');
+      console.error(err);
+      alert(err.response?.data?.error || 'Failed to clone and dispose lead');
     }
   };
 
-  const toggleSelectAll = () => {
-    if (selectedIds.length === filtered.length) {
-      setSelectedIds([]);
-    } else {
-      setSelectedIds(filtered.map(l => l._id));
-    }
-  };
-
-  const filtered = leads;
+  const filtered = leads.filter(lead => {
+    const fields = lead.fields || {};
+    const name = (fields.Name || fields.name || '').toLowerCase();
+    const phone = (fields.Phone || fields.phone || fields.Mobile || '').toLowerCase();
+    const s = searchTerm.toLowerCase();
+    const matchesSearch = !searchTerm || name.includes(s) || phone.includes(s);
+    const matchesSource = sourceFilter === 'all' || 
+      (sourceFilter === 'created' ? fields.manuallyCreated : !fields.manuallyCreated);
+    const matchesStatus = statusFilter === 'all' || lead.status === statusFilter;
+    return matchesSearch && matchesSource && matchesStatus;
+  });
 
   return (
-    <div className="superadmin-dashboard">
-      <input 
-        type="file" 
-        accept="image/*" 
-        style={{ display: 'none' }} 
-        ref={fileInputRef} 
-        onChange={handleImageSelect} 
-      />
-      <div className="dashboard-header animate-slide-down" style={{ marginBottom: 24 }}>
+    <div className="animate-fade-in" style={{ paddingBottom: 60 }}>
+      {/* ── HEADER ── */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 28, flexWrap: 'wrap', gap: 16 }}>
         <div>
-          <h1 style={{ fontSize: 'var(--h1)', fontWeight: 900, color: 'var(--text-primary)', margin: 0, display: 'flex', alignItems: 'center', gap: 10 }}>
-            <Award size={20} color="var(--success)" /> My Leads
-          </h1>
-          <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: 4 }}>Track and manage your successful conversions</p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+            <Award size={20} color="var(--primary)" />
+            <h1 style={{ fontSize: '1.75rem', fontWeight: 900, margin: 0 }}>My Leads</h1>
+          </div>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem', margin: 0 }}>
+            Track and manage your successful conversions
+          </p>
+          <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+            <button 
+              className="btn btn-primary" 
+              onClick={() => setShowCreateModal(true)}
+              style={{ padding: '6px 14px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: 6 }}
+            >
+              <Plus size={16} /> Create Lead
+            </button>
+            <span className="badge badge-primary" style={{ padding: '6px 12px', fontSize: '0.8rem' }}>
+              {leads.length} Leads
+            </span>
+          </div>
         </div>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-          {['agent', 'tl'].includes(user?.role) && (
-            <button className="btn btn-primary" onClick={() => setShowCreateModal(true)} style={{ fontSize: '0.75rem', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: 6 }}>
-              <Plus size={14} /> Create Lead
-            </button>
-          )}
-          {user?.role === 'superadmin' && (
-            <button className="btn btn-danger" onClick={handleWipeLeads} style={{ fontSize: '0.75rem', padding: '6px 12px' }}>
-              <Trash2 size={14} /> Wipe All Leads
-            </button>
-          )}
-          {user?.role === 'admin' && filtered.length > 0 && (
+
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+          {(user?.role === 'admin' || user?.role === 'superadmin') && (
             <>
-              <button className="btn btn-outline" onClick={toggleSelectAll} style={{ fontSize: '0.75rem', padding: '6px 12px' }}>
-                {selectedIds.length === filtered.length ? <CheckSquare size={14} /> : <Square size={14} />}
-                {selectedIds.length === filtered.length ? 'Deselect' : 'Select All'}
-              </button>
-              {selectedIds.length > 0 && (
-                <button className="btn btn-danger" onClick={handleBulkDelete} style={{ fontSize: '0.75rem', padding: '6px 12px' }}>
-                  <Trash2 size={14} /> Delete ({selectedIds.length})
+              {selectedIds.length > 0 ? (
+                <button className="btn btn-danger animate-scale-up" onClick={handleBulkDelete} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Trash2 size={16} /> Delete Selected ({selectedIds.length})
+                </button>
+              ) : (
+                <button className="btn btn-outline" onClick={handleWipeLeads} style={{ color: 'var(--danger)', borderColor: 'rgba(239,68,68,0.3)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Trash2 size={16} /> Wipe All Leads
                 </button>
               )}
             </>
           )}
-          <div className="badge badge-primary">
-            {filtered.length} Leads
-          </div>
         </div>
       </div>
 
-      <div className="sa-grid-4" style={{ marginBottom: 24 }}>
-        <StatCard title="Total Leads" value={stats.allLeads || 0} subtext="All acquired leads" icon={Star} accent="#3b82f6" delay={0} />
-        <StatCard title="Total Revenue" value={`₹${(stats.allLeadsAmount || 0).toLocaleString()}`} subtext="Expected lead value" icon={TrendingUp} accent="#0ea5e9" delay={50} />
-        <StatCard title="Converted Leads" value={stats.totalLeads || 0} subtext="Successfully closed" icon={Star} accent="#10b981" delay={100} glow={true} />
-        <StatCard title="Converted Revenue" value={`₹${(stats.totalAmount || 0).toLocaleString()}`} subtext="Aggregate lead value" icon={TrendingUp} accent="#8b5cf6" delay={150} glow={true} />
+      {/* ── STATS ROW ── */}
+      <div className="sa-stats-grid" style={{ marginBottom: 28 }}>
+        <StatCard
+          title="TOTAL LEADS"
+          value={stats.allLeadsCount ?? stats.totalLeads ?? 0}
+          subtext="All acquired leads"
+          icon={Star}
+          accent="#6366f1"
+          delay={0}
+          glow
+        />
+        <StatCard
+          title="TOTAL REVENUE"
+          value={`₹${(stats.allLeadsAmount ?? stats.totalAmount ?? 0).toLocaleString()}`}
+          subtext="Expected lead value"
+          icon={TrendingUp}
+          accent="#06b6d4"
+          delay={60}
+        />
+        <StatCard
+          title="CONVERTED LEADS"
+          value={stats.totalLeads ?? 0}
+          subtext="Successfully closed"
+          icon={Award}
+          accent="#10b981"
+          delay={120}
+        />
+        <StatCard
+          title="CONVERTED REVENUE"
+          value={`₹${(stats.totalAmount ?? 0).toLocaleString()}`}
+          subtext="Aggregate lead value"
+          icon={Target}
+          accent="#8b5cf6"
+          delay={180}
+        />
       </div>
 
-      <div className="glass-panel" style={{ marginBottom: 20, padding: 12, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-        <div style={{ position: 'relative', flex: 1, minWidth: 200 }}>
-          <Search size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+      {/* ── FILTER & SEARCH BAR ── */}
+      <div className="glass-panel" style={{ padding: '16px 20px', marginBottom: 20, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+        {user?.role === 'admin' && leads.length > 0 && (
+          <button className="btn btn-ghost btn-icon" onClick={toggleSelectAll} title={selectedIds.length === leads.length ? "Deselect All" : "Select All"}>
+            {selectedIds.length === leads.length ? <CheckSquare size={18} color="var(--primary)" /> : <Square size={18} />}
+          </button>
+        )}
+
+        <div style={{ position: 'relative', flex: 2, minWidth: 200 }}>
+          <Search size={16} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
           <input type="text" className="input-field" placeholder="Search by name, phone…" style={{ paddingLeft: 36, marginBottom: 0 }} value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
         </div>
 
@@ -496,7 +460,8 @@ const MyLeads = () => {
         </select>
       </div>
 
-      {loading ? (
+      {/* ── LEADS LIST ── */}
+      {loading && leads.length === 0 ? (
         <div className="skeleton" style={{ height: 200 }} />
       ) : filtered.length === 0 ? (
         <div className="glass-panel" style={{ padding: '80px 40px', textAlign: 'center' }}>
@@ -506,7 +471,7 @@ const MyLeads = () => {
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           {filtered.map(lead => {
-        const fields = lead.fields || {};
+            const fields = lead.fields || {};
             const name = fields.Name || fields.name || 'Unknown';
             const phone = fields.Phone || fields.phone || fields.Mobile || 'N/A';
             const isSelected = selectedIds.includes(lead._id);
@@ -519,10 +484,10 @@ const MyLeads = () => {
 
             return (
               <div key={lead._id} className={`glass-panel lead-list-item ${isSelected ? 'selected' : ''}`} style={{
-                padding: 'var(--card-p)',
+                padding: '16px 20px',
                 borderLeft: isSelected ? '4px solid var(--primary)' : `4px solid ${isConverted ? '#10b981' : isNegative ? '#ef4444' : lead.status === 'Call Back' ? '#06b6d4' : 'var(--border)'}`,
                 position: 'relative',
-                opacity: isLocked ? 0.8 : 1
+                opacity: isLocked ? 0.9 : 1
               }}>
 
                 {user?.role === 'admin' && (
@@ -536,50 +501,79 @@ const MyLeads = () => {
                   </div>
                 )}
 
-
                 <div className="lead-card-container">
                   <div className="lead-card-main">
-                    <div style={{ display: 'flex', gap: 'var(--gap)', alignItems: 'center', flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start', flex: 1, minWidth: 0 }}>
                       <div className="lead-card-icon" style={{
-                        background: isConverted ? 'linear-gradient(135deg,var(--success),#059669)' : isNegative ? 'linear-gradient(135deg,var(--danger),#b91c1c)' : 'var(--bg-surface-2)',
-                        color: (isConverted || isNegative) ? '#fff' : 'var(--text-muted)'
+                        background: isConverted ? 'linear-gradient(135deg,#10b981,#059669)' : isNegative ? 'linear-gradient(135deg,#ef4444,#b91c1c)' : lead.status === 'Call Back' ? 'linear-gradient(135deg,#06b6d4,#0891b2)' : 'var(--bg-surface-2)',
+                        color: (isConverted || isNegative || lead.status === 'Call Back') ? '#fff' : 'var(--text-muted)',
+                        marginTop: 2
                       }}>
-                        <Star size={22} fill={(isConverted || isNegative) ? "white" : "none"} />
+                        <Star size={20} fill={(isConverted || isNegative || lead.status === 'Call Back') ? "white" : "none"} />
                       </div>
+
                       <div style={{ minWidth: 0, flex: 1 }}>
-                        <h3 style={{ fontSize: '0.95rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: 4 }}>
-                          {name}
-                          {lead.status === 'Call Back' && <span className="badge badge-cyan" style={{ fontSize: '0.6rem', marginLeft: 8 }}>Lead Callback</span>}
-                        </h3>
-                        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', color: 'var(--text-muted)', fontSize: '0.75rem', fontWeight: 500 }}>
-                          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><PhoneCall size={12} /> {phone}</span>
-                          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><Calendar size={12} /> {new Date(lead.lastModified || lead.createdAt).toLocaleDateString()}</span>
+                        {/* ── Line 1: Name | Phone | Date ── */}
+                        <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px 12px', marginBottom: 6 }}>
+                          <h3 style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
+                            {name}
+                          </h3>
+                          <span style={{ color: 'var(--border)', opacity: 0.8 }}>|</span>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--text-secondary)', fontSize: '0.82rem', fontWeight: 600 }}>
+                            <PhoneCall size={13} style={{ color: 'var(--primary)' }} /> {phone}
+                          </span>
+                          <span style={{ color: 'var(--border)', opacity: 0.8 }}>|</span>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--text-muted)', fontSize: '0.82rem', fontWeight: 500 }}>
+                            <Calendar size={13} /> {new Date(lead.lastModified || lead.createdAt).toLocaleDateString()}
+                          </span>
                           {lead.leadsCount > 1 && (
-                            <button onClick={() => fetchHistory(phone, name)} style={{ color: 'var(--violet)', fontWeight: 700, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+                            <button onClick={() => fetchHistory(phone, name)} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--violet)', fontWeight: 700, background: 'rgba(139, 92, 246, 0.1)', border: '1px solid rgba(139, 92, 246, 0.2)', borderRadius: 6, padding: '2px 8px', fontSize: '0.72rem', cursor: 'pointer' }}>
                               <TrendingUp size={12} /> {lead.leadsCount} Conv.
                             </button>
                           )}
+                          {lead.status === 'Call Back' && (
+                            <span className="badge badge-cyan" style={{ fontSize: '0.68rem', padding: '2px 8px' }}>
+                              Lead Callback
+                            </span>
+                          )}
                         </div>
 
+                        {/* ── Line 2: Agent: <Name> ── */}
                         {lead.agentName && (
-                          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 4, fontWeight: 700, display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '4px' }}>
-                            <span>Agent: <span style={{ color: 'var(--primary)' }}>{lead.agentName}</span></span>
+                          <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: 8, fontWeight: 700, display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '6px' }}>
+                            <span>Agent: <span style={{ color: 'var(--primary)', fontWeight: 800 }}>{lead.agentName}</span></span>
                             {user?.role === 'superadmin' && lead.tlName && lead.tlName !== 'N/A' && (
-                              <> <span style={{ opacity: 0.5 }}>|</span> <span>TL: <span style={{ color: 'var(--violet)' }}>{lead.tlName}</span></span></>
+                              <> <span style={{ opacity: 0.4 }}>|</span> <span>TL: <span style={{ color: 'var(--violet)' }}>{lead.tlName}</span></span></>
                             )}
                             {user?.role === 'superadmin' && lead.adminName && lead.adminName !== 'N/A' && (
-                              <> <span style={{ opacity: 0.5 }}>|</span> <span>Admin: <span style={{ color: 'var(--success)' }}>{lead.adminName}</span></span></>
+                              <> <span style={{ opacity: 0.4 }}>|</span> <span>Admin: <span style={{ color: 'var(--success)' }}>{lead.adminName}</span></span></>
                             )}
                             {fields.manuallyCreated && (
-                              <span style={{ background: 'rgba(245, 158, 11, 0.12)', color: '#f59e0b', border: '1px solid rgba(245, 158, 11, 0.25)', padding: '1px 6px', borderRadius: '4px', fontWeight: 800, fontSize: '0.6rem', marginLeft: 4 }}>
+                              <span style={{ background: 'rgba(245, 158, 11, 0.12)', color: '#f59e0b', border: '1px solid rgba(245, 158, 11, 0.25)', padding: '1px 6px', borderRadius: '4px', fontWeight: 800, fontSize: '0.62rem', marginLeft: 4 }}>
                                 ✍️ Manually added by {fields.createdByName || 'Staff'}
                               </span>
                             )}
                           </div>
                         )}
 
-                        <div style={{ marginTop: 10, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                          <select className="input-field" style={{ marginBottom: 0, padding: '2px 8px', fontSize: '0.7rem', height: 28, width: 'auto', minWidth: 110, cursor: isLocked ? 'not-allowed' : 'pointer' }} value={lead.status || ''} disabled={isLocked} onChange={(e) => handleStatusChange(lead, e.target.value, 'lead')}>
+                        {/* ── Line 3: Status Dropdown & Badges ── */}
+                        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 }}>
+                          <select 
+                            className="input-field" 
+                            style={{ 
+                              marginBottom: 0, 
+                              padding: '4px 10px', 
+                              fontSize: '0.78rem', 
+                              height: 32, 
+                              width: 'auto', 
+                              minWidth: 120, 
+                              fontWeight: 700,
+                              cursor: isLocked ? 'not-allowed' : 'pointer' 
+                            }} 
+                            value={lead.status || ''} 
+                            disabled={isLocked} 
+                            onChange={(e) => handleStatusChange(lead, e.target.value, 'lead')}
+                          >
                             <option value="">Set Status</option>
                             <option value="Converted">Converted</option>
                             <option value="Not Interested">Not Interested</option>
@@ -589,48 +583,58 @@ const MyLeads = () => {
                           </select>
 
                           {lead.status === 'Call Back' && lead.callBackDt && (
-                            <span className="badge badge-cyan" style={{ fontSize: '0.65rem' }}>
-                              <Calendar size={10} /> {new Date(lead.callBackDt).toLocaleString([], { year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}
+                            <span className="badge badge-cyan" style={{ fontSize: '0.7rem', padding: '4px 8px' }}>
+                              <Calendar size={11} /> {new Date(lead.callBackDt).toLocaleString([], { year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}
                             </span>
                           )}
-                          {lead.transactionId && <span className="badge badge-success" style={{ fontSize: '0.65rem' }}>UTR: {lead.transactionId}</span>}
+                          {lead.transactionId && <span className="badge badge-success" style={{ fontSize: '0.7rem', padding: '4px 8px' }}>UTR: {lead.transactionId}</span>}
                         </div>
                         
-                        {(lead.statusDetails || (lead.remarks && lead.remarks !== 'Imported Lead' && lead.remarks !== 'Scheduled')) && (
-                          <div style={{ marginTop: 10, fontSize: '0.75rem', color: 'var(--text-secondary)', background: 'var(--bg-surface)', padding: '6px 10px', borderRadius: 8, border: '1px solid var(--border)' }}>
-                            {lead.status === 'Others' && lead.statusDetails ? (
-                              <span style={{ fontStyle: 'italic' }}>Details: {lead.statusDetails}</span>
-                            ) : (
-                              <span style={{ fontStyle: 'italic' }}>Remarks: {lead.remarks || lead.statusDetails}</span>
-                            )}
-                          </div>
-                        )}
+                        {/* ── Line 4: Remarks Box ── */}
+                        <div style={{ 
+                          fontSize: '0.78rem', 
+                          color: 'var(--text-secondary)', 
+                          background: 'var(--bg-surface-2)', 
+                          padding: '8px 12px', 
+                          borderRadius: 10, 
+                          border: '1px solid var(--border)',
+                          lineHeight: 1.4
+                        }}>
+                          <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Remarks: </span>
+                          <span style={{ fontStyle: 'italic' }}>
+                            {lead.remarks || lead.statusDetails || 'Uploaded via Lead Template'}
+                          </span>
+                        </div>
                       </div>
                     </div>
                   </div>
 
+                  {/* ── RIGHT ACTION COLUMN: AMOUNT & BUTTONS ── */}
                   <div className="lead-card-actions">
                     <div className="lead-amount-box" style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: '0.6rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Amount</div>
-                      <div style={{ fontSize: '1.25rem', fontWeight: 900, color: 'var(--success)', lineHeight: 1, margin: '2px 0' }}>₹{(lead.leadAmount || 0).toLocaleString()}</div>
-                      {lead.totalAmount > lead.leadAmount && <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--violet)' }}>Total: ₹{lead.totalAmount.toLocaleString()}</div>}
+                      <div style={{ fontSize: '0.65rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Amount</div>
+                      <div style={{ fontSize: '1.35rem', fontWeight: 900, color: '#10b981', lineHeight: 1.1, margin: '2px 0' }}>
+                        ₹{(lead.leadAmount || 0).toLocaleString()}
+                      </div>
+                      {lead.totalAmount > lead.leadAmount && (
+                        <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--violet)' }}>
+                          Total: ₹{lead.totalAmount.toLocaleString()}
+                        </div>
+                      )}
                     </div>
 
-                    <div style={{ display: 'flex', gap: 6 }}>
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                       {user?.role !== 'admin' && phone !== 'N/A' && (
                         <>
                           {!isLocked && (
                             <button
                               className="btn btn-icon"
                               style={{ width: 36, height: 36, borderRadius: 10, background: 'var(--bg-surface-2)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
-                              title="Extract Transaction from Receipt"
-                              onClick={() => {
-                                setUploadTargetLead(lead);
-                                fileInputRef.current?.click();
-                              }}
-                              disabled={extractingLeadId === lead._id}
+                              title="Upload / Scan Receipt & Convert"
+                              onClick={() => setReceiptModalLead(lead)}
+                              type="button"
                             >
-                              {extractingLeadId === lead._id ? <Loader2 size={16} className="animate-spin" /> : <ImageIcon size={16} />}
+                              <ImageIcon size={17} />
                             </button>
                           )}
                           <a 
@@ -641,9 +645,9 @@ const MyLeads = () => {
                             style={{ width: 36, height: 36, borderRadius: 10, background: '#25D366', color: '#fff' }}
                             title="Message on WhatsApp"
                           >
-                            <WhatsAppIcon size={16} fill="currentColor" />
+                            <WhatsAppIcon size={17} fill="currentColor" />
                           </a>
-                           <button 
+                          <button 
                             className="btn btn-primary btn-icon" 
                             style={{ 
                               width: 36, 
@@ -680,13 +684,14 @@ const MyLeads = () => {
                               setCallActionLead(lead);
                             }}
                             title={isCallButtonLocked ? "Call Locked - Active lead in history" : "Call Lead"}
+                            type="button"
                           >
                             <PhoneCall size={16} fill={isCallButtonLocked ? "gray" : "white"} />
                           </button>
                         </>
                       )}
                       {user?.role === 'admin' && (
-                        <button className="btn btn-danger btn-icon" onClick={() => handleDelete(lead._id)} style={{ width: 36, height: 36, borderRadius: 10 }}>
+                        <button className="btn btn-danger btn-icon" onClick={() => handleDelete(lead._id)} style={{ width: 36, height: 36, borderRadius: 10 }} type="button">
                           <Trash2 size={16} />
                         </button>
                       )}
@@ -699,6 +704,7 @@ const MyLeads = () => {
         </div>
       )}
 
+      {/* ── PAGINATION ── */}
       {totalPages > 1 && (
         <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 16, marginTop: 24, paddingBottom: 24 }}>
           <button 
@@ -723,10 +729,10 @@ const MyLeads = () => {
         .lead-list-item { transition: all 0.2s; }
         .lead-list-item:hover { transform: translateX(4px); box-shadow: var(--shadow-lg); }
         
-        .lead-card-container { display: flex; justify-content: space-between; alignItems: center; gap: 20px; padding-left: 32px; }
-        .lead-card-main { display: flex; gap: 18, alignItems: center; flex: 1; minWidth: 0; }
-        .lead-card-icon { width: 50px; height: 50px; border-radius: var(--r-md); display: flex; alignItems: center; justify-content: center; flex-shrink: 0; }
-        .lead-card-actions { display: flex; flex-direction: column; gap: 10px; align-items: flex-end; min-width: 120px; }
+        .lead-card-container { display: flex; justify-content: space-between; align-items: center; gap: 20px; padding-left: 24px; }
+        .lead-card-main { display: flex; gap: 18px; align-items: center; flex: 1; min-width: 0; }
+        .lead-card-icon { width: 44px; height: 44px; border-radius: var(--r-md); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+        .lead-card-actions { display: flex; flex-direction: column; gap: 10px; align-items: flex-end; min-width: 130px; }
 
         .history-upload-btn {
           width: 28px;
@@ -747,7 +753,7 @@ const MyLeads = () => {
         }
 
         @media (max-width: 768px) {
-          .lead-card-container { flex-direction: column; align-items: stretch; gap: 16px; padding-left: 0; padding-top: 24px; }
+          .lead-card-container { flex-direction: column; align-items: stretch; gap: 16px; padding-left: 0; padding-top: 20px; }
           .lead-card-actions { flex-direction: row; justify-content: space-between; align-items: center; border-top: 1px solid var(--border); padding-top: 12px; }
           .lead-card-actions .lead-amount-box { text-align: left; }
           
@@ -763,6 +769,7 @@ const MyLeads = () => {
         }
       `}</style>
 
+      {/* ── STATUS UPDATE MODAL ── */}
       {modalLead && (
         <LeadStatusModal
           lead={modalLead}
@@ -773,6 +780,20 @@ const MyLeads = () => {
         />
       )}
 
+      {/* ── RECEIPT UPLOAD & CONVERSION MODAL ── */}
+      {receiptModalLead && (
+        <ReceiptUploadModal
+          lead={receiptModalLead}
+          onClose={() => setReceiptModalLead(null)}
+          onSuccess={(updatedLead) => {
+            addToast('Lead converted successfully from receipt!', 'success');
+            fetchData(true);
+            if (historyContact) fetchHistory(historyContact.phone, historyContact.name);
+          }}
+        />
+      )}
+
+      {/* ── CALL ACTION MODAL ── */}
       {callActionLead && (
         <CallActionModal
           lead={callActionLead}
@@ -781,17 +802,17 @@ const MyLeads = () => {
         />
       )}
 
-      {/* History Modal */}
+      {/* ── HISTORY MODAL ── */}
       {historyContact && (
-        <div className="status-modal-overlay animate-fade-in">
-          <div className="status-modal-content animate-scale-up" style={{ maxWidth: 600 }}>
+        <div className="status-modal-overlay animate-fade-in" onClick={() => { setHistoryContact(null); setSelectedHistoryIds([]); }}>
+          <div className="status-modal-content animate-scale-up" style={{ maxWidth: 620 }} onClick={e => e.stopPropagation()}>
             <div className="status-modal-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', gap: 12 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <div className="status-icon-wrapper" style={{ background: '#8b5cf615', color: '#8b5cf6', width: 56, height: 56, minWidth: 56, borderRadius: 14 }}>
-                  <TrendingUp size={32} />
+                <div className="status-icon-wrapper" style={{ background: '#8b5cf615', color: '#8b5cf6', width: 50, height: 50, minWidth: 50, borderRadius: 14 }}>
+                  <TrendingUp size={28} />
                 </div>
                 <div>
-                  <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 900 }}>Conversion History</h3>
+                  <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 900 }}>Conversion History</h3>
                   <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)' }}>{historyContact.name} ({historyContact.phone})</p>
                 </div>
               </div>
@@ -819,7 +840,6 @@ const MyLeads = () => {
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                   {[...historyData].sort((a, b) => {
-                    // Non-converted leads on top
                     if (a.status === 'Converted' && b.status !== 'Converted') return 1;
                     if (a.status !== 'Converted' && b.status === 'Converted') return -1;
                     return new Date(b.createdAt) - new Date(a.createdAt);
@@ -867,14 +887,11 @@ const MyLeads = () => {
                               {h.status !== 'Converted' && (
                                 <button
                                   className="btn btn-icon history-upload-btn"
-                                  title="Extract Transaction from Receipt"
-                                  onClick={() => {
-                                    setUploadTargetLead(h);
-                                    fileInputRef.current?.click();
-                                  }}
-                                  disabled={extractingLeadId === h._id}
+                                  title="Upload Receipt & Convert"
+                                  onClick={() => setReceiptModalLead(h)}
+                                  type="button"
                                 >
-                                  {extractingLeadId === h._id ? <Loader2 className="animate-spin upload-icon" /> : <ImageIcon className="upload-icon" />}
+                                  <ImageIcon className="upload-icon" />
                                 </button>
                               )}
                             </div>
@@ -893,7 +910,6 @@ const MyLeads = () => {
                                 </div>
                               )}
 
-                              {/* Specific Details - Conditional based on current record status */}
                               {h.status === 'Call Back' && h.callBackDt && (
                                 <div style={{ fontSize: '0.75rem', color: 'var(--cyan)', fontWeight: 700, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
                                   <Calendar size={12} /> Callback: {new Date(h.callBackDt).toLocaleString()}
@@ -940,7 +956,7 @@ const MyLeads = () => {
         />
       )}
 
-      {/* Duplicate Warning Modal */}
+      {/* ── DUPLICATE WARNING MODAL ── */}
       {duplicateLead && (
         <div className="status-modal-overlay animate-fade-in" style={{ zIndex: 999999 }}>
           <div className="status-modal-content animate-scale-up" style={{ maxWidth: 500, border: '2px solid var(--danger)' }}>
@@ -990,7 +1006,7 @@ const MyLeads = () => {
         </div>
       )}
 
-      {/* Toasts */}
+      {/* ── TOAST NOTIFICATIONS ── */}
       <div style={{ position: 'fixed', bottom: 20, right: 20, zIndex: 9999, display: 'flex', flexDirection: 'column', gap: 10 }}>
         {toasts.map(toast => (
           <div key={toast.id} style={{ 
