@@ -110,8 +110,11 @@ const ReceiptUploadModal = ({ lead, onClose, onSuccess }) => {
         });
       }
 
-      if (onSuccess) onSuccess({ ...lead, ...updatePayload });
-      onClose();
+      if (onSuccess) {
+        onSuccess({ ...lead, ...updatePayload });
+      } else {
+        onClose();
+      }
     } catch (err) {
       console.error('Failed to convert lead:', err);
       alert(err.response?.data?.error || 'Failed to save conversion details.');
@@ -146,15 +149,16 @@ const ReceiptUploadModal = ({ lead, onClose, onSuccess }) => {
             <input 
               type="file" 
               ref={fileInputRef} 
-              style={{ display: 'none' }} 
+              style={{ position: 'fixed', top: -1000, left: -1000, opacity: 0, width: 0, height: 0, pointerEvents: 'none' }} 
               accept="image/*" 
               onChange={handleFileChange} 
+              onClick={e => e.stopPropagation()}
             />
 
             {!imageBase64 ? (
               <div 
                 onClick={() => fileInputRef.current?.click()}
-                onDragOver={e => e.preventDefault()}
+                onDragOver={e => { e.preventDefault(); e.stopPropagation(); }}
                 onDrop={handleDrop}
                 style={{
                   border: '2px dashed var(--border)',
@@ -283,7 +287,7 @@ const ReceiptUploadModal = ({ lead, onClose, onSuccess }) => {
           display: flex;
           align-items: center;
           justify-content: center;
-          z-index: 99999;
+          z-index: 1000000;
           padding: 20px 16px;
           overflow-y: auto;
         }

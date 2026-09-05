@@ -126,10 +126,12 @@ const MyLeads = () => {
   };
 
   // Scroll Position Persistence Ref & Functions
+  const activeLeadIdRef = useRef(null);
   const scrollPosRef = useRef(0);
 
-  const saveScrollPosition = () => {
+  const saveScrollPosition = (leadId = null) => {
     try {
+      if (leadId) activeLeadIdRef.current = leadId;
       const y = window.scrollY || document.documentElement.scrollTop || 0;
       if (y > 0) {
         scrollPosRef.current = y;
@@ -138,21 +140,45 @@ const MyLeads = () => {
     } catch (e) {}
   };
 
-  const restoreScrollPosition = () => {
+  const restoreScrollPosition = (targetLeadId = null) => {
     try {
+      const activeId = targetLeadId || activeLeadIdRef.current;
       const saved = scrollPosRef.current || parseInt(sessionStorage.getItem('myleads_scroll_pos') || '0', 10);
-      if (saved > 0) {
-        requestAnimationFrame(() => {
+      
+      const doRestore = () => {
+        if (saved > 0) {
           window.scrollTo({ top: saved, behavior: 'instant' });
-        });
-        setTimeout(() => {
-          window.scrollTo({ top: saved, behavior: 'instant' });
-        }, 50);
-        setTimeout(() => {
-          window.scrollTo({ top: saved, behavior: 'instant' });
-        }, 150);
-      }
+        }
+        if (activeId) {
+          const el = document.getElementById(`lead-card-${activeId}`);
+          if (el && (!saved || Math.abs((window.scrollY || 0) - saved) > 50)) {
+            el.scrollIntoView({ block: 'center', behavior: 'instant' });
+          }
+        }
+      };
+
+      doRestore();
+      requestAnimationFrame(doRestore);
+      setTimeout(doRestore, 30);
+      setTimeout(doRestore, 80);
+      setTimeout(doRestore, 150);
+      setTimeout(doRestore, 300);
+      setTimeout(doRestore, 500);
     } catch (e) {}
+  };
+
+  const openReceiptModal = (lead) => {
+    if (!lead) return;
+    const leadId = lead._id || lead.id || lead.contactId;
+    saveScrollPosition(leadId);
+    setReceiptModalLead(lead);
+  };
+
+  const openCallActionModal = (lead) => {
+    if (!lead) return;
+    const leadId = lead._id || lead.id || lead.contactId;
+    saveScrollPosition(leadId);
+    setCallActionLead(lead);
   };
 
   useEffect(() => {
@@ -182,9 +208,9 @@ const MyLeads = () => {
     }
   };
 
-  const fetchData = async (silent = false) => {
+  const fetchData = async (silent = false, targetLeadId = null) => {
     try {
-      saveScrollPosition();
+      saveScrollPosition(targetLeadId);
       if (!silent && (!leads || leads.length === 0)) {
         setLoading(true);
       }
@@ -208,11 +234,12 @@ const MyLeads = () => {
       if (leadsRes.data?.pages) setTotalPages(leadsRes.data.pages);
       if (statsRes.data) setStats(statsRes.data);
 
-      restoreScrollPosition();
+      restoreScrollPosition(targetLeadId);
     } catch (err) {
       console.error('Fetch leads failed', err);
     } finally {
       setLoading(false);
+      restoreScrollPosition(targetLeadId);
     }
   };
 
@@ -330,13 +357,15 @@ const MyLeads = () => {
 
   const handleStatusChange = (target, newStatus, type = 'lead') => {
     if (!newStatus || !target) return;
-    saveScrollPosition();
+    const leadId = target._id || target.id || target.contactId;
+    saveScrollPosition(leadId);
     setModalLead({ ...target, type });
     setModalStatus(newStatus);
   };
 
   const handleModalSave = async (formData) => {
-    saveScrollPosition();
+    const activeId = modalLead?._id || modalLead?.id || modalLead?.contactId;
+    saveScrollPosition(activeId);
     setModalSubmitting(true);
     try {
       const cid = modalLead.contactId || modalLead._id || modalLead.id;
@@ -360,8 +389,8 @@ const MyLeads = () => {
             alert('Existing callback updated successfully!');
             setModalLead(null);
             setModalStatus(null);
-            await fetchData(true);
-            restoreScrollPosition();
+            await fetchData(true, activeId);
+            restoreScrollPosition(activeId);
             return;
           }
         }
@@ -388,13 +417,13 @@ const MyLeads = () => {
       
       setModalLead(null);
       setModalStatus(null);
-      await fetchData(true);
-      restoreScrollPosition();
+      await fetchData(true, activeId);
+      restoreScrollPosition(activeId);
     } catch (err) {
       alert(err.response?.data?.error || 'Update failed');
     } finally {
       setModalSubmitting(false);
-      restoreScrollPosition();
+      restoreScrollPosition(activeId);
     }
   };
 
@@ -425,22 +454,23 @@ const MyLeads = () => {
   };
 
   const handleCallActionSubmit = async (data) => {
-    saveScrollPosition();
+    const activeId = callActionLead?._id || callActionLead?.id || callActionLead?.contactId;
+    saveScrollPosition(activeId);
     try {
       const cid = callActionLead.contactId || callActionLead._id || callActionLead.id;
       const res = await api.post(`/leads/${cid}/clone-and-dispose`, data);
       
       if (res.data?.success) {
         setCallActionLead(null);
-        await fetchData(true);
-        restoreScrollPosition();
+        await fetchData(true, activeId);
+        restoreScrollPosition(activeId);
         addToast(`Call action saved. Lead status: ${data.status || 'Updated'}`, 'success');
       }
     } catch (err) {
       console.error(err);
       alert(err.response?.data?.error || 'Failed to clone and dispose lead');
     } finally {
-      restoreScrollPosition();
+      restoreScrollPosition(activeId);
     }
   };
 
@@ -594,7 +624,7 @@ const MyLeads = () => {
             const isCallButtonLocked = hasActiveLeadInHistory && lead.status !== 'Call Back';
 
             return (
-              <div key={leadId} className={`glass-panel lead-list-item ${isSelected ? 'selected' : ''}`} style={{
+              <div key={leadId} id={`lead-card-${leadId}`} className={`glass-panel lead-list-item ${isSelected ? 'selected' : ''}`} style={{
                 padding: '16px 20px',
                 borderLeft: isSelected ? '4px solid var(--primary)' : `4px solid ${isConverted ? '#10b981' : isNegative ? '#ef4444' : lead.status === 'Call Back' ? '#06b6d4' : 'var(--border)'}`,
                 position: 'relative',
@@ -638,7 +668,7 @@ const MyLeads = () => {
                             <Calendar size={13} /> {formatSafeDate(lead.lastModified || lead.createdAt)}
                           </span>
                           {lead.leadsCount > 1 && (
-                            <button onClick={() => fetchHistory(phone, name)} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--violet)', fontWeight: 700, background: 'rgba(139, 92, 246, 0.1)', border: '1px solid rgba(139, 92, 246, 0.2)', borderRadius: 6, padding: '2px 8px', fontSize: '0.72rem', cursor: 'pointer' }}>
+                            <button onClick={() => { saveScrollPosition(leadId); fetchHistory(phone, name); }} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--violet)', fontWeight: 700, background: 'rgba(139, 92, 246, 0.1)', border: '1px solid rgba(139, 92, 246, 0.2)', borderRadius: 6, padding: '2px 8px', fontSize: '0.72rem', cursor: 'pointer' }}>
                               <TrendingUp size={12} /> {lead.leadsCount} Conv.
                             </button>
                           )}
@@ -777,10 +807,7 @@ const MyLeads = () => {
                               className="btn btn-icon"
                               style={{ width: 36, height: 36, borderRadius: 10, background: 'var(--bg-surface-2)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
                               title="Upload / Scan Receipt & Convert"
-                              onClick={() => {
-                                saveScrollPosition();
-                                setReceiptModalLead(lead);
-                              }}
+                              onClick={() => openReceiptModal(lead)}
                               type="button"
                             >
                               <ImageIcon size={17} />
@@ -793,7 +820,7 @@ const MyLeads = () => {
                             className="btn btn-icon" 
                             style={{ width: 36, height: 36, borderRadius: 10, background: '#25D366', color: '#fff' }}
                             title="Message on WhatsApp"
-                            onClick={() => saveScrollPosition()}
+                            onClick={() => saveScrollPosition(leadId)}
                           >
                             <WhatsAppIcon size={17} fill="currentColor" />
                           </a>
@@ -813,7 +840,7 @@ const MyLeads = () => {
                             }}
                             disabled={isCallButtonLocked}
                             onClick={async () => {
-                              saveScrollPosition();
+                              saveScrollPosition(leadId);
                               if (lead.status === 'Call Back') {
                                 triggerTelCall(phone);
                                 return;
@@ -832,7 +859,7 @@ const MyLeads = () => {
                               }
 
                               triggerTelCall(phone);
-                              setCallActionLead(lead);
+                              openCallActionModal(lead);
                             }}
                             title={isCallButtonLocked ? "Call Locked - Active lead in history" : "Call Lead"}
                             type="button"
@@ -973,14 +1000,16 @@ const MyLeads = () => {
         <ReceiptUploadModal
           lead={receiptModalLead}
           onClose={() => { 
+            const activeId = receiptModalLead._id || receiptModalLead.id || receiptModalLead.contactId;
             setReceiptModalLead(null); 
-            restoreScrollPosition();
+            restoreScrollPosition(activeId);
           }}
           onSuccess={async (updatedLead) => {
+            const activeId = receiptModalLead._id || receiptModalLead.id || receiptModalLead.contactId;
             addToast('Lead converted successfully from receipt!', 'success');
             setReceiptModalLead(null);
-            await fetchData(true);
-            restoreScrollPosition();
+            await fetchData(true, activeId);
+            restoreScrollPosition(activeId);
             if (historyContact) fetchHistory(historyContact.phone, historyContact.name);
           }}
         />
@@ -991,8 +1020,9 @@ const MyLeads = () => {
         <CallActionModal
           lead={callActionLead}
           onClose={() => { 
+            const activeId = callActionLead._id || callActionLead.id || callActionLead.contactId;
             setCallActionLead(null); 
-            restoreScrollPosition();
+            restoreScrollPosition(activeId);
           }}
           onSubmit={handleCallActionSubmit}
         />
@@ -1089,7 +1119,7 @@ const MyLeads = () => {
                                 <button
                                   className="btn btn-icon history-upload-btn"
                                   title="Upload Receipt & Convert"
-                                  onClick={() => setReceiptModalLead(h)}
+                                  onClick={() => openReceiptModal(h)}
                                   type="button"
                                 >
                                   <ImageIcon className="upload-icon" />
