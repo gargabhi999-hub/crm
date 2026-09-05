@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { X, UploadCloud, Image as ImageIcon, CheckCircle2, AlertCircle, Loader2, RotateCw, FileText } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { X, UploadCloud, Image as ImageIcon, CheckCircle2, AlertCircle, Loader2, RotateCw } from 'lucide-react';
 import api from '../utils/api';
 
 const ReceiptUploadModal = ({ lead, onClose, onSuccess }) => {
@@ -16,20 +16,6 @@ const ReceiptUploadModal = ({ lead, onClose, onSuccess }) => {
   });
   const [submitting, setSubmitting] = useState(false);
   const fileInputRef = useRef(null);
-
-  useEffect(() => {
-    // Preserve scroll position
-    const scrollY = window.scrollY;
-    document.body.style.position = 'fixed';
-    document.body.style.top = `-${scrollY}px`;
-    document.body.style.width = '100%';
-    return () => {
-      document.body.style.position = '';
-      document.body.style.top = '';
-      document.body.style.width = '';
-      window.scrollTo(0, scrollY);
-    };
-  }, []);
 
   if (!lead) return null;
 
@@ -108,12 +94,14 @@ const ReceiptUploadModal = ({ lead, onClose, onSuccess }) => {
         receiptImage: imageBase64 || undefined
       };
 
+      const leadId = lead._id || lead.id;
       // 1. Update Lead Record
-      await api.put(`/leads/${lead._id}`, updatePayload);
+      await api.put(`/leads/${leadId}`, updatePayload);
 
       // 2. If contactId exists, update Contact record too
-      if (lead.contactId) {
-        await api.put(`/contacts/${lead.contactId}/status`, {
+      const contactId = lead.contactId || leadId;
+      if (contactId) {
+        await api.put(`/contacts/${contactId}/status`, {
           status: 'Converted',
           leadAmount: parsedAmount,
           transactionId: formData.transactionId.trim(),

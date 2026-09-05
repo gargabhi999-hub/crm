@@ -34,7 +34,7 @@ const MyLeads = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [sourceFilter, setSourceFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
-  const [stats, setStats] = useState({ totalLeads: 0, totalAmount: 0 });
+  const [stats, setStats] = useState({ totalLeads: 0, totalAmount: 0, allLeadsCount: 0, allLeadsAmount: 0 });
   const [selectedIds, setSelectedIds] = useState([]);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [createSubmitting, setCreateSubmitting] = useState(false);
@@ -75,29 +75,33 @@ const MyLeads = () => {
   // Scroll Position Persistence
   useEffect(() => {
     const handleScroll = () => {
-      if (window.scrollY > 0) {
-        sessionStorage.setItem('myleads_scroll_pos', window.scrollY.toString());
-      }
+      try {
+        if (window.scrollY > 0) {
+          sessionStorage.setItem('myleads_scroll_pos', window.scrollY.toString());
+        }
+      } catch (e) {}
     };
     window.addEventListener('scroll', handleScroll, { passive: true });
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
   const restoreScrollPosition = () => {
-    const saved = sessionStorage.getItem('myleads_scroll_pos');
-    if (saved) {
-      const top = parseInt(saved, 10);
-      if (!isNaN(top) && top > 0) {
-        requestAnimationFrame(() => {
-          window.scrollTo({ top, behavior: 'instant' });
-        });
+    try {
+      const saved = sessionStorage.getItem('myleads_scroll_pos');
+      if (saved) {
+        const top = parseInt(saved, 10);
+        if (!isNaN(top) && top > 0) {
+          requestAnimationFrame(() => {
+            window.scrollTo({ top, behavior: 'instant' });
+          });
+        }
       }
-    }
+    } catch (e) {}
   };
 
   const fetchData = async (silent = false) => {
     try {
-      if (!silent && leads.length === 0) {
+      if (!silent && (!leads || leads.length === 0)) {
         setLoading(true);
       }
       const params = new URLSearchParams();
@@ -111,9 +115,14 @@ const MyLeads = () => {
         api.get(`/leads/my-leads?${params.toString()}`),
         api.get('/leads/stats'),
       ]);
-      setLeads(leadsRes.data.leads || leadsRes.data);
-      if (leadsRes.data.pages) setTotalPages(leadsRes.data.pages);
-      setStats(statsRes.data);
+
+      const incomingLeads = Array.isArray(leadsRes.data?.leads) 
+        ? leadsRes.data.leads 
+        : (Array.isArray(leadsRes.data) ? leadsRes.data : []);
+      
+      setLeads(incomingLeads);
+      if (leadsRes.data?.pages) setTotalPages(leadsRes.data.pages);
+      if (statsRes.data) setStats(statsRes.data);
 
       if (!silent) {
         setTimeout(restoreScrollPosition, 60);
@@ -130,7 +139,7 @@ const MyLeads = () => {
       setHistoryLoading(true);
       setHistoryContact({ phone, name });
       const res = await api.get(`/leads/history/${phone}`);
-      setHistoryData(res.data);
+      setHistoryData(Array.isArray(res.data) ? res.data : []);
     } catch (err) {
       console.error('Fetch history failed', err);
     } finally {
@@ -148,7 +157,7 @@ const MyLeads = () => {
     socket.on('contacts_updated', handleSilentSync);
 
     const emailStatusHandler = (data) => {
-      if (data.agentId === user._id || data.agentId === user.id) {
+      if (data && (data.agentId === user?._id || data.agentId === user?.id)) {
         if (data.success) {
           addToast('📧 Receipt email sent successfully!', 'success');
         } else {
@@ -173,10 +182,11 @@ const MyLeads = () => {
   };
 
   const toggleSelectAll = () => {
+    if (!Array.isArray(leads)) return;
     if (selectedIds.length === leads.length) {
       setSelectedIds([]);
     } else {
-      setSelectedIds(leads.map(lead => lead._id));
+      setSelectedIds(leads.map(lead => lead._id || lead.id));
     }
   };
 
@@ -237,7 +247,7 @@ const MyLeads = () => {
   };
 
   const handleStatusChange = (target, newStatus, type = 'lead') => {
-    if (!newStatus) return;
+    if (!newStatus || !target) return;
     setModalLead({ ...target, type });
     setModalStatus(newStatus);
   };
@@ -245,11 +255,12 @@ const MyLeads = () => {
   const handleModalSave = async (formData) => {
     setModalSubmitting(true);
     try {
-      const cid = modalLead.contactId || modalLead._id;
+      const cid = modalLead.contactId || modalLead._id || modalLead.id;
+      const leadId = modalLead._id || modalLead.id;
 
       if (modalStatus === 'Call Back') {
         const checkRes = await api.get(`/contacts/${cid}/check-callback`);
-        if (checkRes.data.exists) {
+        if (checkRes.data?.exists) {
           const existing = checkRes.data.callback;
           const choice = window.confirm(
             `A callback already exists for this contact scheduled for ${new Date(existing.callBackDt).toLocaleString()}.\n\n` +
@@ -258,7 +269,7 @@ const MyLeads = () => {
           );
 
           if (choice) {
-            await api.put(`/leads/callbacks/${existing._id}`, {
+            await api.put(`/leads/callbacks/${existing._id || existing.id}`, {
               callBackDt: formData.callBackDt,
               remarks: formData.remarks || `[Status update to Call Back]`
             });
@@ -272,7 +283,7 @@ const MyLeads = () => {
       }
 
       if (modalLead.type === 'lead') {
-        await api.put(`/leads/${modalLead._id}`, {
+        await api.put(`/leads/${leadId}`, {
           status: modalStatus,
           ...formData
         });
@@ -304,7 +315,7 @@ const MyLeads = () => {
     setCreateSubmitting(true);
     try {
       const res = await api.post('/leads/create', formData);
-      if (res.data.success) {
+      if (res.data?.success) {
         setShowCreateModal(false);
         fetchData();
         addToast('Lead created successfully!', 'success');
@@ -325,10 +336,10 @@ const MyLeads = () => {
 
   const handleCallActionSubmit = async (data) => {
     try {
-      const cid = callActionLead.contactId || callActionLead._id;
+      const cid = callActionLead.contactId || callActionLead._id || callActionLead.id;
       const res = await api.post(`/leads/${cid}/clone-and-dispose`, data);
       
-      if (res.data.success) {
+      if (res.data?.success) {
         setCallActionLead(null);
         fetchData(true);
         addToast(`Call action saved. Lead status: ${data.status || 'Updated'}`, 'success');
@@ -339,10 +350,12 @@ const MyLeads = () => {
     }
   };
 
-  const filtered = leads.filter(lead => {
+  const rawLeads = Array.isArray(leads) ? leads : [];
+  const filtered = rawLeads.filter(lead => {
+    if (!lead) return false;
     const fields = lead.fields || {};
-    const name = (fields.Name || fields.name || '').toLowerCase();
-    const phone = (fields.Phone || fields.phone || fields.Mobile || '').toLowerCase();
+    const name = (fields.Name || fields.name || lead.name || '').toLowerCase();
+    const phone = (fields.Phone || fields.phone || fields.Mobile || lead.phone || '').toLowerCase();
     const s = searchTerm.toLowerCase();
     const matchesSearch = !searchTerm || name.includes(s) || phone.includes(s);
     const matchesSource = sourceFilter === 'all' || 
@@ -372,7 +385,7 @@ const MyLeads = () => {
               <Plus size={16} /> Create Lead
             </button>
             <span className="badge badge-primary" style={{ padding: '6px 12px', fontSize: '0.8rem' }}>
-              {leads.length} Leads
+              {rawLeads.length} Leads
             </span>
           </div>
         </div>
@@ -398,7 +411,7 @@ const MyLeads = () => {
       <div className="sa-stats-grid" style={{ marginBottom: 28 }}>
         <StatCard
           title="TOTAL LEADS"
-          value={stats.allLeadsCount ?? stats.totalLeads ?? 0}
+          value={stats?.allLeadsCount ?? stats?.totalLeads ?? 0}
           subtext="All acquired leads"
           icon={Star}
           accent="#6366f1"
@@ -407,7 +420,7 @@ const MyLeads = () => {
         />
         <StatCard
           title="TOTAL REVENUE"
-          value={`₹${(stats.allLeadsAmount ?? stats.totalAmount ?? 0).toLocaleString()}`}
+          value={`₹${((stats?.allLeadsAmount ?? stats?.totalAmount ?? 0) || 0).toLocaleString()}`}
           subtext="Expected lead value"
           icon={TrendingUp}
           accent="#06b6d4"
@@ -415,7 +428,7 @@ const MyLeads = () => {
         />
         <StatCard
           title="CONVERTED LEADS"
-          value={stats.totalLeads ?? 0}
+          value={stats?.totalLeads ?? 0}
           subtext="Successfully closed"
           icon={Award}
           accent="#10b981"
@@ -423,7 +436,7 @@ const MyLeads = () => {
         />
         <StatCard
           title="CONVERTED REVENUE"
-          value={`₹${(stats.totalAmount ?? 0).toLocaleString()}`}
+          value={`₹${((stats?.totalAmount ?? 0) || 0).toLocaleString()}`}
           subtext="Aggregate lead value"
           icon={Target}
           accent="#8b5cf6"
@@ -433,9 +446,9 @@ const MyLeads = () => {
 
       {/* ── FILTER & SEARCH BAR ── */}
       <div className="glass-panel" style={{ padding: '16px 20px', marginBottom: 20, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-        {user?.role === 'admin' && leads.length > 0 && (
-          <button className="btn btn-ghost btn-icon" onClick={toggleSelectAll} title={selectedIds.length === leads.length ? "Deselect All" : "Select All"}>
-            {selectedIds.length === leads.length ? <CheckSquare size={18} color="var(--primary)" /> : <Square size={18} />}
+        {user?.role === 'admin' && rawLeads.length > 0 && (
+          <button className="btn btn-ghost btn-icon" onClick={toggleSelectAll} title={selectedIds.length === rawLeads.length ? "Deselect All" : "Select All"}>
+            {selectedIds.length === rawLeads.length ? <CheckSquare size={18} color="var(--primary)" /> : <Square size={18} />}
           </button>
         )}
 
@@ -461,7 +474,7 @@ const MyLeads = () => {
       </div>
 
       {/* ── LEADS LIST ── */}
-      {loading && leads.length === 0 ? (
+      {loading && rawLeads.length === 0 ? (
         <div className="skeleton" style={{ height: 200 }} />
       ) : filtered.length === 0 ? (
         <div className="glass-panel" style={{ padding: '80px 40px', textAlign: 'center' }}>
@@ -471,19 +484,21 @@ const MyLeads = () => {
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           {filtered.map(lead => {
+            if (!lead) return null;
             const fields = lead.fields || {};
-            const name = fields.Name || fields.name || 'Unknown';
-            const phone = fields.Phone || fields.phone || fields.Mobile || 'N/A';
-            const isSelected = selectedIds.includes(lead._id);
+            const name = fields.Name || fields.name || lead.name || 'Unknown';
+            const phone = fields.Phone || fields.phone || fields.Mobile || lead.phone || 'N/A';
+            const leadId = lead._id || lead.id;
+            const isSelected = selectedIds.includes(leadId);
 
             const isNegative = lead.status === 'Not Interested' || lead.status === 'DNC/DND';
             const isConverted = lead.status === 'Converted';
             const isLocked = isConverted;
-            const hasActiveLeadInHistory = lead.historyStatuses?.some(status => status !== 'Converted' && status !== 'Not Interested');
+            const hasActiveLeadInHistory = Array.isArray(lead.historyStatuses) && lead.historyStatuses.some(status => status !== 'Converted' && status !== 'Not Interested');
             const isCallButtonLocked = hasActiveLeadInHistory && lead.status !== 'Call Back';
 
             return (
-              <div key={lead._id} className={`glass-panel lead-list-item ${isSelected ? 'selected' : ''}`} style={{
+              <div key={leadId} className={`glass-panel lead-list-item ${isSelected ? 'selected' : ''}`} style={{
                 padding: '16px 20px',
                 borderLeft: isSelected ? '4px solid var(--primary)' : `4px solid ${isConverted ? '#10b981' : isNegative ? '#ef4444' : lead.status === 'Call Back' ? '#06b6d4' : 'var(--border)'}`,
                 position: 'relative',
@@ -495,7 +510,7 @@ const MyLeads = () => {
                     <input
                       type="checkbox"
                       checked={isSelected}
-                      onChange={() => toggleSelect(lead._id)}
+                      onChange={() => toggleSelect(leadId)}
                       style={{ width: 18, height: 18, cursor: 'pointer', accentColor: 'var(--primary)' }}
                     />
                   </div>
@@ -671,7 +686,7 @@ const MyLeads = () => {
                               try {
                                 const response = await api.get(`/leads/history/${phone}`);
                                 const history = response.data || [];
-                                const activeLead = history.find(item => item._id !== lead._id && item.status !== 'Converted');
+                                const activeLead = history.find(item => (item._id || item.id) !== leadId && item.status !== 'Converted');
                                 if (activeLead) {
                                   alert(`Already containing the lead with the lead status: ${activeLead.status}`);
                                   return;
@@ -691,7 +706,7 @@ const MyLeads = () => {
                         </>
                       )}
                       {user?.role === 'admin' && (
-                        <button className="btn btn-danger btn-icon" onClick={() => handleDelete(lead._id)} style={{ width: 36, height: 36, borderRadius: 10 }} type="button">
+                        <button className="btn btn-danger btn-icon" onClick={() => handleDelete(leadId)} style={{ width: 36, height: 36, borderRadius: 10 }} type="button">
                           <Trash2 size={16} />
                         </button>
                       )}
@@ -839,14 +854,15 @@ const MyLeads = () => {
                 <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>No historical records found.</div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                  {[...historyData].sort((a, b) => {
+                  {historyData.slice().sort((a, b) => {
                     if (a.status === 'Converted' && b.status !== 'Converted') return 1;
                     if (a.status !== 'Converted' && b.status === 'Converted') return -1;
                     return new Date(b.createdAt) - new Date(a.createdAt);
                   }).map((h, i) => {
-                    const isHistorySelected = selectedHistoryIds.includes(h._id);
+                    const hId = h._id || h.id;
+                    const isHistorySelected = selectedHistoryIds.includes(hId);
                     return (
-                      <div key={h._id} style={{
+                      <div key={hId || i} style={{
                         padding: 16,
                         borderRadius: 16,
                         background: 'var(--bg-surface-2)',
@@ -860,7 +876,7 @@ const MyLeads = () => {
                             <input
                               type="checkbox"
                               checked={isHistorySelected}
-                              onChange={() => toggleSelectHistory(h._id)}
+                              onChange={() => toggleSelectHistory(hId)}
                               style={{ width: 18, height: 18, cursor: 'pointer', accentColor: 'var(--primary)' }}
                             />
                           </div>
@@ -984,14 +1000,14 @@ const MyLeads = () => {
 
               <h4 style={{ fontSize: '0.9rem', fontWeight: 700, marginBottom: 12, color: 'var(--text-primary)' }}>Pre-existing Duplicate Lead(s):</h4>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxHeight: '200px', overflowY: 'auto' }}>
-                {duplicateLead.duplicates.map((d, index) => (
+                {(Array.isArray(duplicateLead.duplicates) ? duplicateLead.duplicates : []).map((d, index) => (
                   <div key={d.id || index} style={{ padding: '12px 16px', background: 'var(--bg-surface-2)', borderRadius: 12, border: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div>
                       <div style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--text-primary)' }}>Handled by: {d.agentName}</div>
                       <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 4 }}>Created at: {new Date(d.createdAt).toLocaleString()}</div>
                     </div>
                     <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: '0.95rem', fontWeight: 900, color: 'var(--success)' }}>₹{d.leadAmount.toLocaleString()}</div>
+                      <div style={{ fontSize: '0.95rem', fontWeight: 900, color: 'var(--success)' }}>₹{(d.leadAmount || 0).toLocaleString()}</div>
                       <span className={`badge ${d.status === 'Converted' ? 'badge-success' : 'badge-primary'}`} style={{ fontSize: '0.65rem', marginTop: 4, display: 'inline-block' }}>{d.status}</span>
                     </div>
                   </div>
