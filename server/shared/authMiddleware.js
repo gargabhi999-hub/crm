@@ -16,11 +16,16 @@ async function verify(req, res, next) {
 
     const user = await prisma.user.findUnique({ where: { id: decoded._id || decoded.id } });
 
-    if (!user || (user.role === 'agent' && !user.active)) {
+    if (!user) {
+      return res.status(401).json({ error: 'User session not found in this database. Please log in again.' });
+    }
+
+    if (user.role === 'agent' && !user.active) {
       return res.status(403).json({ error: 'Account inactive or suspended. Please contact admin.' });
     }
 
     req.user.name = user.name || user.username;
+    req.user.role = user.role;
 
     next();
   } catch (error) {

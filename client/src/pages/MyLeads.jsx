@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useSocket } from '../contexts/SocketContext';
 import api from '../utils/api';
-import { Star, TrendingUp, Users, Calendar, Search, PhoneCall, Award, Target, Trash2, X, CheckSquare, Square, RotateCw, MessageCircle, Image as ImageIcon, Loader2, Plus, AlertTriangle } from 'lucide-react';
+import { Star, TrendingUp, Users, Calendar, Search, PhoneCall, Award, Target, Trash2, X, CheckSquare, Square, RotateCw, MessageCircle, Image as ImageIcon, Loader2, Plus, AlertTriangle, FileSpreadsheet, ChevronLeft, ChevronRight } from 'lucide-react';
 import LeadStatusModal from '../components/LeadStatusModal';
 import CallActionModal from '../components/CallActionModal';
 import ReceiptUploadModal from '../components/ReceiptUploadModal';
@@ -11,55 +11,31 @@ import CharityConfirmModal from '../components/CharityConfirmModal';
 import WhatsAppIcon from '../components/WhatsAppIcon';
 import CreateLeadModal from '../components/CreateLeadModal';
 import './SuperAdminDashboard.css';
+import './MyLeads.css';
 
 const StatCard = ({ title, value, subtext, icon: Icon, accent, delay = 0 }) => (
   <div 
     className="stat-card-widget animate-slide-up"
-    style={{ 
-      animationDelay: `${delay}ms`,
-      background: 'var(--bg-surface)',
-      border: '1px solid var(--border)',
-      borderRadius: '16px',
-      padding: '16px 20px',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      gap: '12px',
-      boxShadow: 'var(--shadow-sm)',
-      position: 'relative',
-      overflow: 'hidden'
-    }}
+    style={{ animationDelay: `${delay}ms` }}
   >
-    <div style={{ flex: 1, minWidth: 0 }}>
-      <div style={{ fontSize: '0.68rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>
-        {title}
-      </div>
-      <div style={{ fontSize: '1.45rem', fontWeight: 900, color: 'var(--text-primary)', lineHeight: 1.1, letterSpacing: '-0.02em', marginBottom: 4 }}>
-        {value}
-      </div>
-      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-        {subtext}
-      </div>
+    <div className="stat-card-info">
+      <div className="stat-card-title">{title}</div>
+      <div className="stat-card-value" title={typeof value === 'string' ? value : undefined}>{value}</div>
+      <div className="stat-card-subtext" title={subtext}>{subtext}</div>
     </div>
-    <div style={{ 
-      width: 44, 
-      height: 44, 
-      borderRadius: 12, 
-      background: `${accent}15`, 
-      color: accent,
-      display: 'flex', 
-      alignItems: 'center', 
-      justifyContent: 'center',
-      flexShrink: 0
-    }}>
-      <Icon size={22} strokeWidth={2.3} />
+    <div 
+      className="stat-card-icon-box"
+      style={{ background: `${accent}15`, color: accent }}
+    >
+      <Icon className="stat-card-icon" strokeWidth={2.3} />
     </div>
-    <div style={{
-      position: 'absolute', top: -10, right: -10, width: 60, height: 60,
-      borderRadius: '50%', background: accent, filter: 'blur(24px)', opacity: 0.1, pointerEvents: 'none'
-    }} />
+    <div 
+      className="stat-card-glow"
+      style={{ background: accent }} 
+    />
   </div>
 );
+
 
 const formatSafeDate = (val) => {
   if (!val) return 'N/A';
@@ -89,16 +65,30 @@ const MyLeads = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [sourceFilter, setSourceFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
+  const searchInputRef = useRef(null);
   const [stats, setStats] = useState({ totalLeads: 0, totalAmount: 0, allLeadsCount: 0, allLeadsAmount: 0 });
   const [selectedIds, setSelectedIds] = useState([]);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [createSubmitting, setCreateSubmitting] = useState(false);
   const [duplicateLead, setDuplicateLead] = useState(null);
   
-  // Pagination
+  // Pagination & Auto-Scroll
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(50);
   const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [isSettled, setIsSettled] = useState(false);
+
+  const pageRef = useRef(1);
+  const loadingMoreRef = useRef(false);
+  const hasMoreRef = useRef(true);
+  const sheetRef = useRef(null);
+  const tableContainerRef = useRef(null);
+  const isSettledRef = useRef(false);
+  const touchStartYRef = useRef(0);
 
   // Status Modal State
   const [modalLead, setModalLead] = useState(null);
@@ -256,16 +246,19 @@ const MyLeads = () => {
   }, []);
 
   const triggerTelCall = (phone) => {
-    try {
-      const a = document.createElement('a');
-      a.href = `tel:${String(phone).replace(/\D/g, '')}`;
-      a.style.display = 'none';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-    } catch (e) {
-      window.location.href = `tel:${phone}`;
-    }
+    setTimeout(() => {
+      try {
+        const cleanPhone = String(phone).replace(/\D/g, '');
+        const a = document.createElement('a');
+        a.href = `tel:${cleanPhone}`;
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      } catch (e) {
+        window.location.href = `tel:${phone}`;
+      }
+    }, 0);
   };
 
   const fetchData = async (silent = false, targetLeadId = null) => {
@@ -280,8 +273,10 @@ const MyLeads = () => {
       if (statusFilter !== 'all') params.append('status', statusFilter);
       if (convertedStartDate) params.append('convertedFrom', convertedStartDate);
       if (convertedEndDate) params.append('convertedTo', convertedEndDate);
-      params.append('page', page);
-      params.append('limit', limit);
+
+      const fetchLimit = silent ? Math.max(limit, leads.length || limit) : limit;
+      params.append('page', 1);
+      params.append('limit', fetchLimit);
 
       const [leadsRes, statsRes] = await Promise.all([
         api.get(`/leads/my-leads?${params.toString()}`),
@@ -293,7 +288,29 @@ const MyLeads = () => {
         : (Array.isArray(leadsRes.data) ? leadsRes.data : []);
       
       setLeads(incomingLeads);
-      if (leadsRes.data?.pages) setTotalPages(leadsRes.data.pages);
+      const totalP = leadsRes.data?.pages || 1;
+      setTotalPages(totalP);
+      const totalL = leadsRes.data?.total ?? incomingLeads.length;
+      setTotalCount(totalL);
+
+      if (!silent) {
+        setPage(1);
+        pageRef.current = 1;
+        const moreAvailable = totalP > 1 && incomingLeads.length < totalL;
+        setHasMore(moreAvailable);
+        hasMoreRef.current = moreAvailable;
+        if (tableContainerRef.current) {
+          tableContainerRef.current.scrollTop = 0;
+        }
+      } else {
+        const currentPagesCovered = Math.ceil(incomingLeads.length / limit);
+        setPage(currentPagesCovered || 1);
+        pageRef.current = currentPagesCovered || 1;
+        const moreAvailable = incomingLeads.length < totalL;
+        setHasMore(moreAvailable);
+        hasMoreRef.current = moreAvailable;
+      }
+
       if (statsRes.data) setStats(statsRes.data);
 
       restoreScrollPosition(targetLeadId);
@@ -304,6 +321,176 @@ const MyLeads = () => {
       restoreScrollPosition(targetLeadId);
     }
   };
+
+  const loadNextBatch = async () => {
+    if (loadingMoreRef.current || !hasMoreRef.current || loading) return;
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+
+    try {
+      const nextPage = pageRef.current + 1;
+      const params = new URLSearchParams();
+      if (searchTerm) params.append('search', searchTerm);
+      if (sourceFilter !== 'all') params.append('source', sourceFilter);
+      if (statusFilter !== 'all') params.append('status', statusFilter);
+      if (convertedStartDate) params.append('convertedFrom', convertedStartDate);
+      if (convertedEndDate) params.append('convertedTo', convertedEndDate);
+      params.append('page', nextPage);
+      params.append('limit', limit);
+
+      const leadsRes = await api.get(`/leads/my-leads?${params.toString()}`);
+      const nextLeads = Array.isArray(leadsRes.data?.leads) 
+        ? leadsRes.data.leads 
+        : (Array.isArray(leadsRes.data) ? leadsRes.data : []);
+
+      if (nextLeads.length > 0) {
+        setLeads(prev => {
+          const existingIds = new Set(prev.map(l => l._id || l.id));
+          const fresh = nextLeads.filter(l => !existingIds.has(l._id || l.id));
+          return [...prev, ...fresh];
+        });
+        setPage(nextPage);
+        pageRef.current = nextPage;
+      }
+
+      const totalP = leadsRes.data?.pages || 1;
+      setTotalPages(totalP);
+      const totalL = leadsRes.data?.total || totalCount;
+      if (totalL) setTotalCount(totalL);
+
+      if (nextPage >= totalP || nextLeads.length < limit) {
+        setHasMore(false);
+        hasMoreRef.current = false;
+      }
+    } catch (err) {
+      console.error('Failed to load next batch of leads', err);
+    } finally {
+      loadingMoreRef.current = false;
+      setLoadingMore(false);
+    }
+  };
+
+  const handleTableScroll = (e) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.target;
+    // Auto-load next batch when user scrolls near the bottom of loaded leads
+    if (scrollHeight - scrollTop - clientHeight < 300) {
+      if (!loadingMoreRef.current && hasMoreRef.current && !loading) {
+        loadNextBatch();
+      }
+    }
+  };
+
+  // Scroll settling detection
+  useEffect(() => {
+    const layoutContent = sheetRef.current?.closest('.layout-content');
+    if (!layoutContent) return;
+
+    const checkSettled = () => {
+      if (!sheetRef.current) return;
+      const rect = sheetRef.current.getBoundingClientRect();
+      // Topbar is ~60px. When sheet is within 75px of top of viewport:
+      const settled = rect.top <= 75;
+      if (settled !== isSettledRef.current) {
+        isSettledRef.current = settled;
+        setIsSettled(settled);
+      }
+    };
+
+    layoutContent.addEventListener('scroll', checkSettled, { passive: true });
+    window.addEventListener('resize', checkSettled, { passive: true });
+    checkSettled();
+
+    return () => {
+      layoutContent.removeEventListener('scroll', checkSettled);
+      window.removeEventListener('resize', checkSettled);
+    };
+  }, []);
+
+  const handleTouchStart = (e) => {
+    if (e.touches && e.touches[0]) {
+      touchStartYRef.current = e.touches[0].clientY;
+    }
+  };
+
+  useEffect(() => {
+    const sheetEl = sheetRef.current;
+    if (!sheetEl) return;
+
+    const onWheel = (e) => {
+      const layoutContent = sheetEl.closest('.layout-content');
+      if (!layoutContent) return;
+
+      if (!isSettledRef.current) {
+        if (e.deltaY > 0) {
+          layoutContent.scrollTop += e.deltaY;
+          const rect = sheetEl.getBoundingClientRect();
+          if (rect && rect.top <= 75) {
+            isSettledRef.current = true;
+            setIsSettled(true);
+          }
+          if (e.cancelable) e.preventDefault();
+        }
+      } else {
+        const tableContainer = tableContainerRef.current;
+        if (tableContainer) {
+          const { scrollTop } = tableContainer;
+          if (scrollTop <= 0 && e.deltaY < 0) {
+            layoutContent.scrollTop += e.deltaY;
+            const rect = sheetEl.getBoundingClientRect();
+            if (rect && rect.top > 75) {
+              isSettledRef.current = false;
+              setIsSettled(false);
+            }
+            if (e.cancelable) e.preventDefault();
+          }
+        }
+      }
+    };
+
+    const onTouchMove = (e) => {
+      if (!e.touches || !e.touches[0]) return;
+      const currentY = e.touches[0].clientY;
+      const deltaY = touchStartYRef.current - currentY;
+      const layoutContent = sheetEl.closest('.layout-content');
+      if (!layoutContent) return;
+
+      if (!isSettledRef.current) {
+        if (deltaY > 0) {
+          layoutContent.scrollTop += deltaY;
+          touchStartYRef.current = currentY;
+          const rect = sheetEl.getBoundingClientRect();
+          if (rect && rect.top <= 75) {
+            isSettledRef.current = true;
+            setIsSettled(true);
+          }
+          if (e.cancelable) e.preventDefault();
+        }
+      } else {
+        const tableContainer = tableContainerRef.current;
+        if (tableContainer) {
+          const { scrollTop } = tableContainer;
+          if (scrollTop <= 0 && deltaY < 0) {
+            layoutContent.scrollTop += deltaY;
+            touchStartYRef.current = currentY;
+            const rect = sheetEl.getBoundingClientRect();
+            if (rect && rect.top > 75) {
+              isSettledRef.current = false;
+              setIsSettled(false);
+            }
+            if (e.cancelable) e.preventDefault();
+          }
+        }
+      }
+    };
+
+    sheetEl.addEventListener('wheel', onWheel, { passive: false });
+    sheetEl.addEventListener('touchmove', onTouchMove, { passive: false });
+
+    return () => {
+      sheetEl.removeEventListener('wheel', onWheel);
+      sheetEl.removeEventListener('touchmove', onTouchMove);
+    };
+  }, [loading]);
 
   const fetchHistory = async (phone, name) => {
     try {
@@ -344,7 +531,7 @@ const MyLeads = () => {
       socket.off('contacts_updated', handleSilentSync);
       socket.off('email_status', emailStatusHandler);
     };
-  }, [socket, page, limit, searchTerm, sourceFilter, statusFilter, convertedStartDate, convertedEndDate]);
+  }, [socket, limit, searchTerm, sourceFilter, statusFilter, convertedStartDate, convertedEndDate]);
 
   const toggleSelect = (id) => {
     setSelectedIds(prev =>
@@ -571,9 +758,9 @@ const MyLeads = () => {
   });
 
   return (
-    <div className="animate-fade-in" style={{ paddingBottom: 60 }}>
+    <div className="animate-fade-in leads-page-container">
       {/* ── HEADER ── */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 28, flexWrap: 'wrap', gap: 16 }}>
+      <div className="leads-page-header">
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
             <Award size={20} color="var(--primary)" />
@@ -582,7 +769,7 @@ const MyLeads = () => {
           <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem', margin: 0 }}>
             Track and manage your successful conversions
           </p>
-          <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+          <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
             <button 
               className="btn btn-primary" 
               onClick={() => {
@@ -599,7 +786,7 @@ const MyLeads = () => {
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
           {(user?.role === 'admin' || user?.role === 'superadmin') && (
             <>
               {selectedIds.length > 0 ? (
@@ -617,7 +804,7 @@ const MyLeads = () => {
       </div>
 
       {/* ── STATS ROW (Single Line Compact Grid) ── */}
-      <div className="leads-stats-row" style={{ marginBottom: 24 }}>
+      <div className="leads-stats-row">
         <StatCard
           title="TOTAL LEADS"
           value={stats?.allLeads ?? stats?.allLeadsCount ?? 0}
@@ -652,55 +839,162 @@ const MyLeads = () => {
         />
       </div>
 
-      {/* ── FILTER & SEARCH BAR ── */}
-      <div className="glass-panel" style={{ padding: '16px 20px', marginBottom: 20, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-        {user?.role === 'admin' && rawLeads.length > 0 && (
-          <button className="btn btn-ghost btn-icon" onClick={toggleSelectAll} title={selectedIds.length === rawLeads.length ? "Deselect All" : "Select All"}>
-            {selectedIds.length === rawLeads.length ? <CheckSquare size={18} color="var(--primary)" /> : <Square size={18} />}
-          </button>
+      {/* ── FILTER & SEARCH BAR (Single-Line Mobile Layout) ── */}
+      <div className="glass-panel leads-filter-bar">
+        {/* If Mobile Search Overlay is OPEN */}
+        {mobileSearchOpen ? (
+          <div className="leads-mobile-search-active animate-scale-up">
+            <div className="leads-mobile-search-input-box">
+              <Search size={16} className="search-icon-inside" />
+              <input 
+                ref={searchInputRef}
+                type="text" 
+                className="input-field leads-search-input" 
+                placeholder="Search name, phone, agent..." 
+                value={searchTerm} 
+                onChange={e => setSearchTerm(e.target.value)} 
+                onKeyDown={e => {
+                  if (e.key === 'Enter' || e.key === 'Escape') {
+                    setMobileSearchOpen(false);
+                  }
+                }}
+              />
+              {searchTerm && (
+                <button 
+                  type="button" 
+                  className="search-clear-btn" 
+                  onClick={() => { setSearchTerm(''); searchInputRef.current?.focus(); }}
+                  title="Clear search"
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+            <button 
+              type="button" 
+              className="btn btn-ghost btn-sm search-close-btn"
+              onClick={() => setMobileSearchOpen(false)}
+            >
+              Done
+            </button>
+          </div>
+        ) : (
+          <div className="leads-filter-line-container">
+            {/* Admin Select All Checkbox */}
+            {user?.role === 'admin' && rawLeads.length > 0 && (
+              <button 
+                type="button"
+                className="btn btn-ghost btn-icon leads-select-all-btn" 
+                onClick={toggleSelectAll} 
+                title={selectedIds.length === rawLeads.length ? "Deselect All" : "Select All"}
+              >
+                {selectedIds.length === rawLeads.length ? <CheckSquare size={18} color="var(--primary)" /> : <Square size={18} />}
+              </button>
+            )}
+
+            {/* Desktop Search Wrapper (visible on >= 769px) */}
+            <div className="leads-search-wrapper hide-on-mobile">
+              <Search size={16} className="search-icon-inside" />
+              <input 
+                type="text" 
+                className="input-field" 
+                placeholder="Search by name, phone…" 
+                style={{ paddingLeft: 36, marginBottom: 0 }} 
+                value={searchTerm} 
+                onChange={e => setSearchTerm(e.target.value)} 
+              />
+              {searchTerm && (
+                <button 
+                  type="button" 
+                  className="search-clear-btn" 
+                  onClick={() => setSearchTerm('')}
+                  title="Clear search"
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+
+            {/* Mobile Search Icon Trigger Button (visible only on mobile <= 768px) */}
+            <button
+              type="button"
+              className={`leads-search-icon-trigger show-on-mobile ${searchTerm ? 'active-search' : ''}`}
+              onClick={() => {
+                setMobileSearchOpen(true);
+                setTimeout(() => searchInputRef.current?.focus(), 80);
+              }}
+              title={searchTerm ? `Search: "${searchTerm}" (Click to edit)` : "Search leads"}
+            >
+              <Search size={16} />
+              {searchTerm && <span className="search-active-dot" />}
+            </button>
+
+            {/* Status Filter */}
+            <div className="leads-filter-pill-wrapper">
+              <select 
+                className="input-field leads-filter-select" 
+                value={statusFilter} 
+                onChange={e => setStatusFilter(e.target.value)}
+              >
+                <option value="all">All Status</option>
+                <option value="Converted">Converted</option>
+                <option value="Not Interested">Not Interested</option>
+                <option value="DNC/DND">DNC/DND</option>
+                <option value="Call Back">Call Back</option>
+                <option value="Others">Others</option>
+              </select>
+            </div>
+
+            {/* Source Filter */}
+            <div className="leads-filter-pill-wrapper">
+              <select 
+                className="input-field leads-filter-select" 
+                value={sourceFilter} 
+                onChange={e => setSourceFilter(e.target.value)}
+              >
+                <option value="all">All Sources</option>
+                <option value="created">Agent Added</option>
+                <option value="uploaded">Uploaded</option>
+              </select>
+            </div>
+
+            {/* Date Filter */}
+            <div className="leads-filter-pill-wrapper">
+              <select 
+                className="input-field leads-filter-select" 
+                value={convertedDatePreset} 
+                onChange={e => handleDatePresetChange(e.target.value)}
+              >
+                <option value="all">📅 All Dates</option>
+                <option value="today">Today</option>
+                <option value="yesterday">Yesterday</option>
+                <option value="this_week">This Week</option>
+                <option value="this_month">This Month</option>
+                <option value="custom">Custom...</option>
+              </select>
+            </div>
+
+            {/* Clear Date Filter Button if active */}
+            {(convertedStartDate || convertedEndDate) && (
+              <button 
+                type="button" 
+                className="btn btn-outline leads-clear-date-btn" 
+                onClick={() => handleDatePresetChange('all')}
+                title="Clear date filter"
+              >
+                <X size={13} />
+                <span className="hide-on-mobile">Clear</span>
+              </button>
+            )}
+          </div>
         )}
 
-        <div style={{ position: 'relative', flex: 2, minWidth: 200 }}>
-          <Search size={16} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-          <input type="text" className="input-field" placeholder="Search by name, phone…" style={{ paddingLeft: 36, marginBottom: 0 }} value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
-        </div>
-
-        <select className="input-field" style={{ width: 'auto', flex: 1, minWidth: 140, marginBottom: 0 }} value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
-          <option value="all">All Status</option>
-          <option value="Converted">Converted</option>
-          <option value="Not Interested">Not Interested</option>
-          <option value="DNC/DND">DNC/DND</option>
-          <option value="Call Back">Call Back</option>
-          <option value="Others">Others</option>
-        </select>
-
-        <select className="input-field" style={{ width: 'auto', flex: 1, minWidth: 140, marginBottom: 0 }} value={sourceFilter} onChange={e => setSourceFilter(e.target.value)}>
-          <option value="all">All Sources</option>
-          <option value="created">Agent Added</option>
-          <option value="uploaded">Uploaded</option>
-        </select>
-
-        {/* ── Converted Date Filter ── */}
-        <select 
-          className="input-field" 
-          style={{ width: 'auto', flex: 1, minWidth: 150, marginBottom: 0 }} 
-          value={convertedDatePreset} 
-          onChange={e => handleDatePresetChange(e.target.value)}
-        >
-          <option value="all">📅 All Dates</option>
-          <option value="today">Today</option>
-          <option value="yesterday">Yesterday</option>
-          <option value="this_week">This Week</option>
-          <option value="this_month">This Month</option>
-          <option value="custom">Custom Date Range...</option>
-        </select>
-
-        {convertedDatePreset === 'custom' && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+        {/* Custom Date Range Picker (collapsible row if custom is picked) */}
+        {convertedDatePreset === 'custom' && !mobileSearchOpen && (
+          <div className="leads-custom-date-row animate-fade-in">
             <input 
               type="date" 
-              className="input-field" 
-              style={{ width: 135, height: 38, padding: '4px 8px', fontSize: '0.78rem', marginBottom: 0 }}
+              className="input-field custom-date-input" 
               value={convertedStartDate}
               onChange={e => setConvertedStartDate(e.target.value)}
               title="From Date"
@@ -708,393 +1002,370 @@ const MyLeads = () => {
             <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>to</span>
             <input 
               type="date" 
-              className="input-field" 
-              style={{ width: 135, height: 38, padding: '4px 8px', fontSize: '0.78rem', marginBottom: 0 }}
+              className="input-field custom-date-input" 
               value={convertedEndDate}
               onChange={e => setConvertedEndDate(e.target.value)}
               title="To Date"
             />
           </div>
         )}
-        {(convertedStartDate || convertedEndDate) && (
-          <button 
-            type="button" 
-            className="btn btn-outline" 
-            style={{ padding: '4px 10px', fontSize: '0.75rem', height: 38 }}
-            onClick={() => handleDatePresetChange('all')}
-          >
-            Clear Date
-          </button>
-        )}
       </div>
 
-      {/* ── LEADS LIST ── */}
+      {/* ── EXCEL SPREADSHEET TABLE ── */}
       {loading && rawLeads.length === 0 ? (
-        <div className="skeleton" style={{ height: 200 }} />
+        <div className="skeleton" style={{ height: 260 }} />
       ) : filtered.length === 0 ? (
         <div className="glass-panel" style={{ padding: '80px 40px', textAlign: 'center' }}>
           <Star size={64} style={{ opacity: 0.08, margin: '0 auto 20px', display: 'block' }} />
           <h3>No matching leads found</h3>
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {filtered.map(lead => {
-            if (!lead) return null;
-            const fields = lead.fields || {};
-            const name = fields.Name || fields.name || lead.name || 'Unknown';
-            const phone = fields.Phone || fields.phone || fields.Mobile || lead.phone || 'N/A';
-            const leadId = lead._id || lead.id;
-            const isSelected = selectedIds.includes(leadId);
-
-            const isNegative = lead.status === 'Not Interested' || lead.status === 'DNC/DND';
-            const isConverted = lead.status === 'Converted';
-            const isLocked = isConverted;
-            const hasActiveLeadInHistory = Array.isArray(lead.historyStatuses) && lead.historyStatuses.some(status => status !== 'Converted' && status !== 'Not Interested');
-            const isCallButtonLocked = hasActiveLeadInHistory && lead.status !== 'Call Back';
-            const effAmount = lead.isCharityConfirmed && (lead.charityAmount !== null && lead.charityAmount !== undefined) 
-              ? lead.charityAmount 
-              : lead.leadAmount;
-
-            return (
+        <div 
+          className="excel-spreadsheet-window" 
+          ref={sheetRef}
+          onTouchStart={handleTouchStart}
+        >
+          {/* Top Sheet Toolbar with Integrated Auto-scroll Status & Stats */}
+          <div className="excel-sheet-toolbar">
+            <div className="excel-sheet-toolbar-left">
               <div 
-                key={leadId} 
-                id={`lead-card-${leadId}`} 
-                className={`lead-row-compact ${isSelected ? 'selected' : ''}`}
-                style={{
-                  borderLeft: isSelected ? '4px solid var(--primary)' : `4px solid ${isConverted ? '#10b981' : isNegative ? '#ef4444' : lead.status === 'Call Back' ? '#06b6d4' : 'var(--border)'}`,
-                  opacity: isLocked ? 0.95 : 1
-                }}
+                className="excel-tab-badge"
+                onClick={() => sheetRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                style={{ cursor: 'pointer' }}
+                title="Click to settle sheet on screen"
               >
-                {/* Admin Checkbox */}
-                {user?.role === 'admin' && (
-                  <input
-                    type="checkbox"
-                    checked={isSelected}
-                    onChange={() => toggleSelect(leadId)}
-                    style={{ width: 16, height: 16, cursor: 'pointer', accentColor: 'var(--primary)', flexShrink: 0 }}
-                  />
+                <FileSpreadsheet className="excel-tab-badge-icon" />
+                <span>Leads Sheet</span>
+              </div>
+            </div>
+
+            {/* Auto-Scroll & Batch Indicator */}
+            <div className="excel-pagination-toolbar">
+              <span style={{ fontSize: '0.73rem', fontWeight: 700, color: 'var(--text-secondary)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <span>Auto-Scroll:</span>
+                <strong style={{ color: 'var(--primary)' }}>
+                  {filtered.length} of {totalCount || (totalPages * limit) || filtered.length}
+                </strong>
+                <span style={{ opacity: 0.6 }}>leads</span>
+              </span>
+
+              <div className="excel-pagination-divider" />
+
+              <span style={{ fontSize: '0.73rem', color: 'var(--text-muted)', fontWeight: 600 }}>
+                Page <strong>{page}</strong> of <strong>{totalPages}</strong>
+              </span>
+            </div>
+
+            <div className="excel-toolbar-stats">
+              <span className="excel-stat-pill">
+                Rows: <strong>{filtered.length}</strong>
+              </span>
+              <span className="excel-stat-pill">
+                Total Value: <strong>₹{filtered.reduce((sum, l) => sum + (l.isCharityConfirmed && l.charityAmount ? l.charityAmount : (l.leadAmount || 0)), 0).toLocaleString()}</strong>
+              </span>
+              {selectedIds.length > 0 && (
+                <span className="excel-stat-pill" style={{ color: 'var(--primary)', borderColor: 'var(--primary-glow)' }}>
+                  Selected: <strong>{selectedIds.length}</strong>
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Table Container with Internal Scroll */}
+          <div 
+            className="excel-table-container"
+            ref={tableContainerRef}
+            onScroll={handleTableScroll}
+            onTouchStart={handleTouchStart}
+          >
+            <table className="excel-grid-table">
+              <thead>
+                <tr>
+                  <th className="sticky-col-index">
+                    {user?.role === 'admin' ? (
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.length > 0 && selectedIds.length === filtered.length}
+                        onChange={toggleSelectAll}
+                        style={{ cursor: 'pointer', accentColor: 'var(--primary)' }}
+                        title="Select All"
+                      />
+                    ) : (
+                      '#'
+                    )}
+                  </th>
+                  <th className="sticky-col-name">Contact / Name</th>
+                  <th>Phone</th>
+                  <th>Status</th>
+                  <th style={{ textAlign: 'right' }}>Amount</th>
+                  <th>Charity / UTR</th>
+                  <th>Remarks</th>
+                  <th className="excel-actions-header" style={{ textAlign: 'center' }}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((lead, idx) => {
+                  if (!lead) return null;
+                  const fields = lead.fields || {};
+                  const name = fields.Name || fields.name || lead.name || 'Unknown';
+                  const phone = fields.Phone || fields.phone || fields.Mobile || lead.phone || 'N/A';
+                  const leadId = lead._id || lead.id;
+                  const isSelected = selectedIds.includes(leadId);
+                  const rowNumber = idx + 1;
+
+                  const isNegative = lead.status === 'Not Interested' || lead.status === 'DNC/DND';
+                  const isConverted = lead.status === 'Converted';
+                  const isLocked = isConverted;
+                  const hasActiveLeadInHistory = Array.isArray(lead.historyStatuses) && lead.historyStatuses.some(status => status !== 'Converted' && status !== 'Not Interested');
+                  const isCallButtonLocked = hasActiveLeadInHistory && lead.status !== 'Call Back';
+                  const effAmount = lead.isCharityConfirmed && (lead.charityAmount !== null && lead.charityAmount !== undefined) 
+                    ? lead.charityAmount 
+                    : lead.leadAmount;
+
+                  const statusColor = isConverted ? '#10b981' : isNegative ? '#ef4444' : lead.status === 'Call Back' ? '#06b6d4' : 'var(--border)';
+
+                  return (
+                    <tr 
+                      key={leadId} 
+                      id={`lead-card-${leadId}`} 
+                      className={`excel-row ${isSelected ? 'selected' : ''}`}
+                    >
+                      {/* Row Index / Checkbox */}
+                      <td 
+                        className="sticky-col-index"
+                        style={{ borderLeft: `4px solid ${statusColor}` }}
+                      >
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                          {user?.role === 'admin' ? (
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => toggleSelect(leadId)}
+                              style={{ cursor: 'pointer', accentColor: 'var(--primary)', width: 14, height: 14 }}
+                            />
+                          ) : null}
+                          <span style={{ fontSize: '0.7rem', opacity: 0.8 }}>{rowNumber}</span>
+                        </div>
+                      </td>
+
+                      {/* Contact / Name (Sticky Left) */}
+                      <td className="sticky-col-name">
+                        <div className="excel-cell-name-box">
+                          <div 
+                            className="excel-avatar-icon"
+                            style={{
+                              background: isConverted ? 'rgba(16,185,129,0.15)' : isNegative ? 'rgba(239,68,68,0.15)' : lead.status === 'Call Back' ? 'rgba(6,182,212,0.15)' : 'var(--bg-surface-2)',
+                              color: isConverted ? '#10b981' : isNegative ? '#ef4444' : lead.status === 'Call Back' ? '#06b6d4' : 'var(--text-muted)'
+                            }}
+                          >
+                            <Star size={13} fill={(isConverted || isNegative || lead.status === 'Call Back') ? "currentColor" : "none"} />
+                          </div>
+                          <div style={{ minWidth: 0, overflow: 'hidden' }}>
+                            <div className="excel-name-text" title={name}>{name}</div>
+                            {lead.agentName && (
+                              <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                                Agent: {lead.agentName}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* Phone */}
+                      <td className="excel-phone-cell">
+                        <a 
+                          href={phone !== 'N/A' ? `tel:${phone}` : undefined}
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--text-secondary)', textDecoration: 'none', fontWeight: 600 }}
+                        >
+                          <PhoneCall size={12} style={{ color: 'var(--primary)' }} />
+                          <span>{phone}</span>
+                        </a>
+                      </td>
+
+                      {/* Status */}
+                      <td>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <select 
+                            className="input-field" 
+                            style={{ 
+                              marginBottom: 0, 
+                              padding: '2px 6px', 
+                              fontSize: '0.72rem', 
+                              height: 26, 
+                              width: 'auto', 
+                              fontWeight: 700,
+                              cursor: isLocked ? 'not-allowed' : 'pointer' 
+                            }} 
+                            value="" 
+                            disabled={isLocked} 
+                            onChange={(e) => {
+                              if (e.target.value) {
+                                handleStatusChange(lead, e.target.value, 'lead');
+                              }
+                            }}
+                          >
+                            <option value="" disabled>{lead.status ? `${lead.status}` : 'Set Status'}</option>
+                            <option value="Converted">Converted</option>
+                            <option value="Not Interested">Not Interested</option>
+                            <option value="DNC/DND">DNC/DND</option>
+                            <option value="Call Back">Call Back</option>
+                            <option value="Others">Others</option>
+                          </select>
+
+                          {lead.status && (
+                            <span 
+                              className={`badge ${
+                                lead.status === 'Converted' ? 'badge-success' :
+                                lead.status === 'Call Back' ? 'badge-cyan' :
+                                (lead.status === 'Not Interested' || lead.status === 'DNC/DND') ? 'badge-danger' :
+                                'badge-primary'
+                              }`}
+                              style={{ fontSize: '0.67rem', padding: '2px 6px', fontWeight: 800 }}
+                            >
+                              {lead.status}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* Amount */}
+                      <td className="excel-amount-cell">
+                        <span style={{ padding: '2px 8px', borderRadius: 999, background: 'rgba(16,185,129,0.12)', color: '#10b981', fontWeight: 900, fontSize: '0.8rem' }}>
+                          ₹{(effAmount || 0).toLocaleString()}
+                        </span>
+                      </td>
+
+                      {/* Charity / UTR */}
+                      <td>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                          {lead.isCharityConfirmed ? (
+                            <span className="badge badge-success" style={{ fontSize: '0.65rem', padding: '2px 6px', fontWeight: 800 }}>
+                              ✓ UTR: {lead.utrCharity || lead.transactionId || 'Confirmed'}
+                            </span>
+                          ) : (
+                            (lead.status === 'Converted' || lead.transactionId) && (
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); openCharityModal(lead); }}
+                                className="btn btn-sm"
+                                style={{ fontSize: '0.65rem', padding: '2px 6px', borderRadius: '4px', fontWeight: 800, border: '1px solid #10b981', color: '#10b981', background: 'rgba(16, 185, 129, 0.1)', cursor: 'pointer' }}
+                                title="Confirm with UTR and amount from charity reply email"
+                              >
+                                ✓ Confirmed by Charity
+                              </button>
+                            )
+                          )}
+
+                          {lead.leadsCount > 1 && (
+                            <button onClick={() => { saveScrollPosition(leadId); fetchHistory(phone, name); }} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: 'var(--violet)', fontWeight: 700, background: 'rgba(139, 92, 246, 0.1)', border: '1px solid rgba(139, 92, 246, 0.2)', borderRadius: 4, padding: '1px 6px', fontSize: '0.65rem', cursor: 'pointer' }}>
+                              <TrendingUp size={11} /> {lead.leadsCount} Conv.
+                            </button>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* Remarks (Click to edit) */}
+                      <td>
+                        <div 
+                          onClick={() => !isLocked && handleStatusChange(lead, lead.status || 'Others', 'lead')}
+                          className="excel-remarks-cell"
+                          title={`Remarks: ${lead.remarks || lead.statusDetails || 'Uploaded via Lead Template'} ${!isLocked ? '(Click to edit)' : ''}`}
+                        >
+                          <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>Remarks: </span>
+                          <span>{lead.remarks || lead.statusDetails || 'Uploaded via Lead Template'}</span>
+                        </div>
+                      </td>
+
+                      {/* Actions */}
+                      <td className="excel-actions-cell">
+                        <div className="excel-actions-wrapper">
+                          {user?.role !== 'admin' && phone !== 'N/A' && (
+                            <>
+                              {!isLocked && (
+                                <button
+                                  className="excel-action-btn receipt-btn"
+                                  title="Upload / Scan Receipt & Convert"
+                                  onClick={() => openReceiptModal(lead)}
+                                  type="button"
+                                >
+                                  <ImageIcon size={16} strokeWidth={2.2} />
+                                </button>
+                              )}
+                              <a 
+                                href={`https://wa.me/${String(phone).replace(/\D/g, '')}`} 
+                                target="_blank" 
+                                rel="noopener noreferrer" 
+                                className="excel-action-btn whatsapp-btn" 
+                                title="Message on WhatsApp"
+                                onClick={() => saveScrollPosition(leadId)}
+                              >
+                                <WhatsAppIcon size={16} fill="#ffffff" />
+                              </a>
+                              <button 
+                                className={`excel-action-btn call-btn ${isCallButtonLocked ? 'locked' : ''}`}
+                                disabled={isCallButtonLocked}
+                                onClick={() => {
+                                  saveScrollPosition(leadId);
+                                  openCallActionModal(lead);
+                                  triggerTelCall(phone);
+                                }}
+                                title={isCallButtonLocked ? "Call Locked - Active lead in history" : "Call Lead"}
+                                type="button"
+                              >
+                                <PhoneCall size={16} strokeWidth={2.2} color={isCallButtonLocked ? 'var(--text-muted)' : '#ffffff'} />
+                              </button>
+                            </>
+                          )}
+                          {user?.role === 'admin' && (
+                            <button 
+                              className="excel-action-btn delete-btn" 
+                              onClick={() => handleDelete(leadId)} 
+                              type="button" 
+                              title="Delete Lead"
+                            >
+                              <Trash2 size={16} strokeWidth={2.2} />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+
+                {/* Loading row when fetching next batch of 50 leads */}
+                {loadingMore && (
+                  <tr className="excel-loading-row">
+                    <td colSpan="8" style={{ textAlign: 'center', padding: '16px', background: 'var(--bg-surface-2)' }}>
+                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: '0.78rem', fontWeight: 700, color: 'var(--primary)' }}>
+                        <RotateCw className="animate-spin" size={16} />
+                        <span>Loading next 50 leads...</span>
+                      </div>
+                    </td>
+                  </tr>
                 )}
 
-                {/* Name & Phone */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 200, flexShrink: 0 }}>
-                  <div style={{
-                    width: 28, height: 28, borderRadius: '50%', flexShrink: 0,
-                    background: isConverted ? 'linear-gradient(135deg,#10b981,#059669)' : isNegative ? 'linear-gradient(135deg,#ef4444,#b91c1c)' : lead.status === 'Call Back' ? 'linear-gradient(135deg,#06b6d4,#0891b2)' : 'var(--bg-surface-2)',
-                    color: (isConverted || isNegative || lead.status === 'Call Back') ? '#fff' : 'var(--text-muted)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center'
-                  }}>
-                    <Star size={13} fill={(isConverted || isNegative || lead.status === 'Call Back') ? "white" : "none"} />
-                  </div>
-                  <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    <div style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--text-primary)', lineHeight: 1.1 }}>{name}</div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
-                      <PhoneCall size={10} style={{ color: 'var(--primary)' }} /> {phone}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Status Dropdown & Badge */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-                  <select 
-                    className="input-field" 
-                    style={{ 
-                      marginBottom: 0, 
-                      padding: '2px 8px', 
-                      fontSize: '0.72rem', 
-                      height: 28, 
-                      width: 'auto', 
-                      fontWeight: 700,
-                      cursor: isLocked ? 'not-allowed' : 'pointer' 
-                    }} 
-                    value="" 
-                    disabled={isLocked} 
-                    onChange={(e) => {
-                      if (e.target.value) {
-                        handleStatusChange(lead, e.target.value, 'lead');
-                      }
-                    }}
-                  >
-                    <option value="" disabled>{lead.status ? `${lead.status}` : 'Set Status'}</option>
-                    <option value="Converted">Converted</option>
-                    <option value="Not Interested">Not Interested</option>
-                    <option value="DNC/DND">DNC/DND</option>
-                    <option value="Call Back">Call Back</option>
-                    <option value="Others">Others</option>
-                  </select>
-
-                  {lead.status && (
-                    <span 
-                      className={`badge ${
-                        lead.status === 'Converted' ? 'badge-success' :
-                        lead.status === 'Call Back' ? 'badge-cyan' :
-                        (lead.status === 'Not Interested' || lead.status === 'DNC/DND') ? 'badge-danger' :
-                        'badge-primary'
-                      }`}
-                      style={{ fontSize: '0.68rem', padding: '2px 6px', fontWeight: 800 }}
-                    >
-                      {lead.status}
-                    </span>
-                  )}
-                </div>
-
-                {/* Amount & UTR Badges */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-                  <span style={{ padding: '2px 8px', borderRadius: 999, background: 'rgba(16,185,129,0.12)', color: '#10b981', fontWeight: 900, fontSize: '0.8rem' }}>
-                    ₹{(effAmount || 0).toLocaleString()}
-                  </span>
-
-                  {lead.isCharityConfirmed ? (
-                    <span className="badge badge-success" style={{ fontSize: '0.65rem', padding: '2px 6px', fontWeight: 800 }}>
-                      ✓ UTR-Charity: {lead.utrCharity}
-                    </span>
-                  ) : (
-                    (lead.status === 'Converted' || lead.transactionId) && (
-                      <button
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); openCharityModal(lead); }}
-                        className="btn btn-sm"
-                        style={{ fontSize: '0.65rem', padding: '2px 6px', borderRadius: '4px', fontWeight: 800, border: '1px solid #10b981', color: '#10b981', background: 'rgba(16, 185, 129, 0.1)', cursor: 'pointer' }}
-                        title="Confirm with UTR and amount from charity reply email"
-                      >
-                        ✓ Confirmed by Charity
-                      </button>
-                    )
-                  )}
-
-                  {lead.leadsCount > 1 && (
-                    <button onClick={() => { saveScrollPosition(leadId); fetchHistory(phone, name); }} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: 'var(--violet)', fontWeight: 700, background: 'rgba(139, 92, 246, 0.1)', border: '1px solid rgba(139, 92, 246, 0.2)', borderRadius: 4, padding: '1px 6px', fontSize: '0.65rem', cursor: 'pointer' }}>
-                      <TrendingUp size={11} /> {lead.leadsCount} Conv.
-                    </button>
-                  )}
-                </div>
-
-                {/* Remarks (Compact Truncated Single-Line) */}
-                <div 
-                  onClick={() => !isLocked && handleStatusChange(lead, lead.status || 'Others', 'lead')}
-                  className="remarks-compact-box"
-                  title={`Remarks: ${lead.remarks || lead.statusDetails || 'Uploaded via Lead Template'} ${!isLocked ? '(Click to edit)' : ''}`}
-                >
-                  <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>Remarks: </span>
-                  <span style={{ fontStyle: 'italic' }}>
-                    {lead.remarks || lead.statusDetails || 'Uploaded via Lead Template'}
-                  </span>
-                </div>
-
-                {/* Action Buttons */}
-                <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexShrink: 0 }}>
-                  {user?.role !== 'admin' && phone !== 'N/A' && (
-                    <>
-                      {!isLocked && (
-                        <button
-                          className="btn btn-icon"
-                          style={{ width: 30, height: 30, borderRadius: 8, background: 'var(--bg-surface-2)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
-                          title="Upload / Scan Receipt & Convert"
-                          onClick={() => openReceiptModal(lead)}
-                          type="button"
-                        >
-                          <ImageIcon size={14} />
-                        </button>
-                      )}
-                      <a 
-                        href={`https://wa.me/${String(phone).replace(/\D/g, '')}`} 
-                        target="_blank" 
-                        rel="noopener noreferrer" 
-                        className="btn btn-icon" 
-                        style={{ width: 30, height: 30, borderRadius: 8, background: '#25D366', color: '#fff' }}
-                        title="Message on WhatsApp"
-                        onClick={() => saveScrollPosition(leadId)}
-                      >
-                        <WhatsAppIcon size={14} fill="currentColor" />
-                      </a>
-                      <button 
-                        className="btn btn-primary btn-icon" 
-                        style={{ 
-                          width: 30, 
-                          height: 30, 
-                          borderRadius: 8,
-                          ...(isCallButtonLocked ? {
-                            background: 'var(--bg-surface-2)',
-                            border: '1px solid var(--border)',
-                            color: 'var(--text-muted)',
-                            opacity: 0.5,
-                            cursor: 'not-allowed'
-                          } : {})
-                        }}
-                        disabled={isCallButtonLocked}
-                        onClick={async () => {
-                          saveScrollPosition(leadId);
-                          if (lead.status === 'Call Back') {
-                            triggerTelCall(phone);
-                            return;
-                          }
-
-                          try {
-                            const response = await api.get(`/leads/history/${phone}`);
-                            const history = response.data || [];
-                            const activeLead = history.find(item => (item._id || item.id) !== leadId && item.status !== 'Converted');
-                            if (activeLead) {
-                              alert(`Already containing the lead with the lead status: ${activeLead.status}`);
-                              return;
-                            }
-                          } catch (err) {
-                            console.error('Failed to check lead history', err);
-                          }
-
-                          triggerTelCall(phone);
-                          openCallActionModal(lead);
-                        }}
-                        title={isCallButtonLocked ? "Call Locked - Active lead in history" : "Call Lead"}
-                        type="button"
-                      >
-                        <PhoneCall size={14} fill={isCallButtonLocked ? "gray" : "white"} />
-                      </button>
-                    </>
-                  )}
-                  {user?.role === 'admin' && (
-                    <button className="btn btn-danger btn-icon" onClick={() => handleDelete(leadId)} style={{ width: 30, height: 30, borderRadius: 8 }} type="button">
-                      <Trash2 size={14} />
-                    </button>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* ── PAGINATION ── */}
-      {totalPages > 1 && (
-        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 12, marginTop: 24, paddingBottom: 24, flexWrap: 'wrap' }}>
-          <button 
-            className="btn btn-outline" 
-            disabled={page === 1} 
-            onClick={() => setPage(p => Math.max(1, p - 1))}
-            style={{ fontSize: '0.8rem', padding: '6px 14px' }}
-          >
-            Previous
-          </button>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.88rem', color: 'var(--text-muted)' }}>
-            <span>Page</span>
-            <select
-              value={page}
-              onChange={(e) => setPage(Number(e.target.value))}
-              className="input-field"
-              style={{ marginBottom: 0, padding: '4px 8px', fontSize: '0.82rem', height: 32, width: 'auto', fontWeight: 800 }}
-            >
-              {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
-                <option key={p} value={p}>
-                  {p}
-                </option>
-              ))}
-            </select>
-            <span>of {totalPages}</span>
+                {/* End of list confirmation */}
+                {!hasMore && filtered.length > 50 && (
+                  <tr className="excel-end-row">
+                    <td colSpan="8" style={{ textAlign: 'center', padding: '10px', background: 'var(--bg-surface-2)', color: 'var(--text-muted)', fontSize: '0.72rem', fontWeight: 700 }}>
+                      ✓ All {filtered.length} leads loaded
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
 
-          <button 
-            className="btn btn-outline" 
-            disabled={page === totalPages} 
-            onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-            style={{ fontSize: '0.8rem', padding: '6px 14px' }}
-          >
-            Next
-          </button>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.88rem', color: 'var(--text-muted)', marginLeft: 8 }}>
-            <span>Show:</span>
-            <select
-              value={limit}
-              onChange={(e) => {
-                setLimit(Number(e.target.value));
-                setPage(1);
-              }}
-              className="input-field"
-              style={{ marginBottom: 0, padding: '4px 8px', fontSize: '0.82rem', height: 32, width: 'auto', fontWeight: 800 }}
-            >
-              <option value={50}>50 per page</option>
-              <option value={100}>100 per page</option>
-              <option value={150}>150 per page</option>
-            </select>
+          {/* Bottom Status Bar */}
+          <div className="excel-status-bar">
+            <span>Ready</span>
+            <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
+              <span>Showing <strong>{filtered.length}</strong> of <strong>{totalCount || (totalPages * limit) || filtered.length}</strong> leads</span>
+              <span>Total Lead Sum: <strong>₹{filtered.reduce((sum, l) => sum + (l.isCharityConfirmed && l.charityAmount ? l.charityAmount : (l.leadAmount || 0)), 0).toLocaleString()}</strong></span>
+            </div>
           </div>
         </div>
       )}
-
-      <style>{`
-        .leads-stats-row {
-          display: grid;
-          grid-template-columns: repeat(4, minmax(0, 1fr));
-          gap: 16px;
-        }
-        @media (max-width: 1100px) {
-          .leads-stats-row {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-          }
-        }
-        @media (max-width: 580px) {
-          .leads-stats-row {
-            grid-template-columns: 1fr;
-          }
-        }
-
-        .stat-card-widget {
-          transition: transform 0.2s ease, box-shadow 0.2s ease;
-        }
-        .stat-card-widget:hover {
-          transform: translateY(-2px);
-          box-shadow: var(--shadow-md);
-        }
-
-        .remarks-editable-box {
-          cursor: pointer;
-          transition: background 0.2s, border-color 0.2s;
-        }
-        .remarks-editable-box:hover {
-          background: rgba(99, 102, 241, 0.08) !important;
-          border-color: rgba(99, 102, 241, 0.4) !important;
-        }
-
-        .lead-list-item { transition: all 0.2s; }
-        .lead-list-item:hover { transform: translateX(4px); box-shadow: var(--shadow-lg); }
-        
-        .lead-card-container { display: flex; justify-content: space-between; align-items: center; gap: 20px; padding-left: 24px; }
-        .lead-card-main { display: flex; gap: 18px; align-items: center; flex: 1; min-width: 0; }
-        .lead-card-icon { width: 44px; height: 44px; border-radius: var(--r-md); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-        .lead-card-actions { display: flex; flex-direction: column; gap: 10px; align-items: flex-end; min-width: 130px; }
-
-        .history-upload-btn {
-          width: 28px;
-          height: 28px;
-          border-radius: 8px;
-          background: var(--bg-surface-2);
-          border: 1px solid var(--border);
-          color: var(--text-primary);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          transition: all 0.2s;
-        }
-
-        .history-upload-btn .upload-icon {
-          width: 14px;
-          height: 14px;
-        }
-
-        @media (max-width: 768px) {
-          .lead-card-container { flex-direction: column; align-items: stretch; gap: 16px; padding-left: 0; padding-top: 20px; }
-          .lead-card-actions { flex-direction: row; justify-content: space-between; align-items: center; border-top: 1px solid var(--border); padding-top: 12px; }
-          .lead-card-actions .lead-amount-box { text-align: left; }
-          
-          .history-upload-btn {
-            width: 38px;
-            height: 38px;
-            border-radius: 10px;
-          }
-          .history-upload-btn .upload-icon {
-            width: 18px;
-            height: 18px;
-          }
-        }
-      `}</style>
 
       {/* ── STATUS UPDATE MODAL ── */}
       {modalLead && (

@@ -98,6 +98,10 @@ model Contact {
   @@index([disposition, isDeleted, createdAt])
   @@index([status, isDeleted])
   @@index([disposedAt])
+  @@index([disposition, isDeleted, lastModified])
+  @@index([disposition, isDeleted, status, lastModified])
+  @@index([disposition, isDeleted, batchId, lastModified])
+  @@index([disposition, isDeleted, conversionDate])
   @@map("contacts")
 }
 
@@ -131,6 +135,8 @@ model Lead {
   @@index([isCharityConfirmed])
   @@index([assignedTo, createdAt])
   @@index([adminId, createdAt])
+  @@index([status, lastModified])
+  @@index([batchId, lastModified])
   @@map("leads")
 }
 

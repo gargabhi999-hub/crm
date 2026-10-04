@@ -61,25 +61,43 @@ app.use(express.json({ limit: '15mb' }));
 app.use(express.urlencoded({ limit: '15mb', extended: true }));
 app.use(cookieParser());
 
-// --- Database Sync (Prisma Push) ---
+// --- Database Sync (Prisma Migrations & Schema) ---
 function syncDatabase() {
   if (!process.env.DATABASE_URL) {
     console.warn("⚠️ DATABASE_URL is not set. Skipping Prisma schema synchronization.");
     return;
   }
   try {
-    console.log('🔄 Synchronizing Prisma schema with database...');
-    const dbUrl = process.env.DATABASE_URL.includes('?') 
-      ? `${process.env.DATABASE_URL}&sslmode=require` 
-      : `${process.env.DATABASE_URL}?sslmode=require`;
+    console.log('🔄 Applying Prisma migrations...');
+    const isLocal = process.env.DATABASE_URL.includes('localhost') || process.env.DATABASE_URL.includes('127.0.0.1');
+    let dbUrl = process.env.DATABASE_URL;
+    if (!isLocal && !dbUrl.includes('sslmode=')) {
+      dbUrl = dbUrl.includes('?') 
+        ? `${dbUrl}&sslmode=require` 
+        : `${dbUrl}?sslmode=require`;
+    }
     
     const serverPath = __dirname;
-    execSync(`npx prisma db push --accept-data-loss`, { 
-      cwd: serverPath,
-      stdio: 'inherit',
-      env: { ...process.env, DATABASE_URL: dbUrl }
-    });
-    console.log('✅ Prisma schema synchronized successfully.');
+    const execEnv = { 
+      ...process.env, 
+      DATABASE_URL: dbUrl, 
+      NODE_OPTIONS: '--dns-result-order=ipv4first' 
+    };
+    try {
+      execSync(`npx prisma migrate deploy`, { 
+        cwd: serverPath,
+        stdio: 'inherit',
+        env: execEnv
+      });
+      console.log('✅ Prisma migrations deployed successfully.');
+    } catch (migErr) {
+      console.warn('⚠️ Migration deploy warning, ensuring schema sync via prisma db push:', migErr.message);
+      execSync(`npx prisma db push --accept-data-loss`, { 
+        cwd: serverPath,
+        stdio: 'inherit',
+        env: execEnv
+      });
+    }
   } catch (err) {
     console.error('❌ Failed to synchronize Prisma schema:', err.message);
   }

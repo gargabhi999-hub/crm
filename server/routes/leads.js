@@ -7,6 +7,26 @@ const { triggerConversionEmail } = require('../shared/triggerConversionEmail');
 const { resolveUserNamesForRecords } = require('../shared/userResolver');
 const axios = require('axios');
 
+// In-memory caching for ultra-fast response
+const statsCache = new Map();
+const STATS_CACHE_TTL = 30 * 1000; // 30 seconds
+
+function getCachedStats(key) {
+  const item = statsCache.get(key);
+  if (item && (Date.now() - item.timestamp < STATS_CACHE_TTL)) {
+    return item.data;
+  }
+  return null;
+}
+
+function setCachedStats(key, data) {
+  statsCache.set(key, { timestamp: Date.now(), data });
+}
+
+function invalidateStatsCache() {
+  statsCache.clear();
+}
+
 function buildSqlWhere(whereQuery, params = []) {
   const clauses = [];
   
@@ -20,6 +40,7 @@ function buildSqlWhere(whereQuery, params = []) {
     else if (key === 'batchId') colName = 'batch_id';
     else if (key === 'disposition') colName = 'disposition';
     else if (key === 'status') colName = 'status';
+    else if (key === 'conversionDate') colName = 'conversion_date';
 
     if (value === null) {
       clauses.push(`${colName} IS NULL`);
@@ -41,6 +62,15 @@ function buildSqlWhere(whereQuery, params = []) {
           params.push(value.not);
           clauses.push(`${colName} <> $${params.length}`);
         }
+      } else if (value.gte !== undefined || value.lte !== undefined) {
+        if (value.gte !== undefined) {
+          params.push(value.gte);
+          clauses.push(`${colName} >= $${params.length}`);
+        }
+        if (value.lte !== undefined) {
+          params.push(value.lte);
+          clauses.push(`${colName} <= $${params.length}`);
+        }
       }
     } else {
       params.push(value);
@@ -61,7 +91,7 @@ router.get('/my-leads', verify, authorize(['superadmin', 'agent', 'tl', 'admin']
     if (req.user.role === 'agent') {
       whereQuery.assignedTo = req.user._id || req.user.id;
     } else if (req.user.role === 'tl') {
-      const agents = await prisma.user.findMany({ where: { tlId: req.user._id || req.user.id } });
+      const agents = await prisma.user.findMany({ where: { tlId: req.user._id || req.user.id }, select: { id: true } });
       whereQuery.assignedTo = { in: agents.map(a => a.id) };
     } else if (req.user.role === 'admin') {
       whereQuery.adminId = req.user._id || req.user.id;
@@ -89,106 +119,84 @@ router.get('/my-leads', verify, authorize(['superadmin', 'agent', 'tl', 'admin']
       };
     }
 
-    let leads = [];
-    let contactLeads = [];
+    const pageNum = page ? Math.max(1, parseInt(page) || 1) : null;
+    const limitNum = limit ? Math.min(200, Math.max(1, parseInt(limit) || 50)) : (pageNum ? 50 : null);
+    const skip = pageNum && limitNum ? (pageNum - 1) * limitNum : 0;
+
+    const contactWhere = {
+      disposition: 'Lead',
+      isDeleted: false,
+      ...whereQuery
+    };
+
+    let total = 0;
+    let contacts = [];
 
     if (search && search.trim()) {
       const q = search.trim();
-
-      // Query leads
-      const leadSqlParams = [];
-      const { clause: leadBaseClause, params: leadParams } = buildSqlWhere(whereQuery, leadSqlParams);
-      leadParams.push(`%${q}%`);
-      const leadSearchIdx = leadParams.length;
-      const leadIdsResult = await prisma.$queryRawUnsafe(
-        `SELECT _id as id FROM leads WHERE ${leadBaseClause} AND (remarks ILIKE $${leadSearchIdx} OR agent_name ILIKE $${leadSearchIdx} OR fields::text ILIKE $${leadSearchIdx})`,
-        ...leadParams
-      );
-      const leadIds = leadIdsResult.map(item => item.id);
-
-      // Query contactLeads
       const contactSqlParams = [];
-      const contactWhere = { ...whereQuery, disposition: 'Lead', isDeleted: false };
       const { clause: contactBaseClause, params: contactParams } = buildSqlWhere(contactWhere, contactSqlParams);
       contactParams.push(`%${q}%`);
-      const contactSearchIdx = contactParams.length;
-      const contactIdsResult = await prisma.$queryRawUnsafe(
-        `SELECT _id as id FROM contacts WHERE ${contactBaseClause} AND (remarks ILIKE $${contactSearchIdx} OR agent_name ILIKE $${contactSearchIdx} OR fields::text ILIKE $${contactSearchIdx})`,
-        ...contactParams
-      );
-      const contactIds = contactIdsResult.map(item => item.id);
+      const searchParamIdx = contactParams.length;
 
-      [leads, contactLeads] = await Promise.all([
-        leadIds.length > 0 ? prisma.lead.findMany({ where: { id: { in: leadIds } } }) : [],
-        contactIds.length > 0 ? prisma.contact.findMany({ where: { id: { in: contactIds } } }) : []
-      ]);
+      const countSql = `SELECT count(*)::int as total FROM contacts WHERE ${contactBaseClause} AND (remarks ILIKE $${searchParamIdx} OR agent_name ILIKE $${searchParamIdx} OR fields::text ILIKE $${searchParamIdx})`;
+      const countResult = await prisma.$queryRawUnsafe(countSql, ...contactParams);
+      total = countResult[0]?.total || 0;
+
+      if (pageNum && limitNum) {
+        const pagedParams = [...contactParams, limitNum, skip];
+        const selectSql = `SELECT _id as id FROM contacts WHERE ${contactBaseClause} AND (remarks ILIKE $${searchParamIdx} OR agent_name ILIKE $${searchParamIdx} OR fields::text ILIKE $${searchParamIdx}) ORDER BY last_modified DESC NULLS LAST LIMIT $${contactParams.length + 1} OFFSET $${contactParams.length + 2}`;
+        const rows = await prisma.$queryRawUnsafe(selectSql, ...pagedParams);
+        const pagedIds = rows.map(r => r.id);
+        if (pagedIds.length > 0) {
+          const fetched = await prisma.contact.findMany({ where: { id: { in: pagedIds } } });
+          const map = new Map(fetched.map(c => [c.id, c]));
+          contacts = pagedIds.map(id => map.get(id)).filter(Boolean);
+        }
+      } else {
+        const rows = await prisma.$queryRawUnsafe(
+          `SELECT _id as id FROM contacts WHERE ${contactBaseClause} AND (remarks ILIKE $${searchParamIdx} OR agent_name ILIKE $${searchParamIdx} OR fields::text ILIKE $${searchParamIdx}) ORDER BY last_modified DESC NULLS LAST LIMIT 200`,
+          ...contactParams
+        );
+        const pagedIds = rows.map(r => r.id);
+        if (pagedIds.length > 0) {
+          const fetched = await prisma.contact.findMany({ where: { id: { in: pagedIds } } });
+          const map = new Map(fetched.map(c => [c.id, c]));
+          contacts = pagedIds.map(id => map.get(id)).filter(Boolean);
+        }
+        total = contacts.length;
+      }
     } else {
-      [leads, contactLeads] = await Promise.all([
-        prisma.lead.findMany({ where: whereQuery }),
-        prisma.contact.findMany({ where: { ...whereQuery, disposition: 'Lead', isDeleted: false } })
-      ]);
+      if (pageNum && limitNum) {
+        [total, contacts] = await Promise.all([
+          prisma.contact.count({ where: contactWhere }),
+          prisma.contact.findMany({
+            where: contactWhere,
+            orderBy: { lastModified: 'desc' },
+            skip,
+            take: limitNum
+          })
+        ]);
+      } else {
+        contacts = await prisma.contact.findMany({
+          where: contactWhere,
+          orderBy: { lastModified: 'desc' },
+          take: 200
+        });
+        total = contacts.length;
+      }
     }
 
-    const leadContactIds = leads.map(l => l.contactId).filter(Boolean);
-    const relatedContacts = await prisma.contact.findMany({
-      where: { id: { in: leadContactIds } },
-      select: { id: true, callBackDt: true }
-    });
-
-    const contactMap = relatedContacts.reduce((acc, c) => {
-      acc[c.id] = c.callBackDt;
+    const contactIds = contacts.map(c => c.id);
+    const overrideLeads = contactIds.length > 0
+      ? await prisma.lead.findMany({ where: { contactId: { in: contactIds } } })
+      : [];
+    const overrideMap = overrideLeads.reduce((acc, l) => {
+      if (l.contactId) acc[l.contactId] = l;
       return acc;
     }, {});
 
-    const userMap = await resolveUserNamesForRecords([...leads, ...contactLeads]);
-    const leadContactIdsSet = new Set(leads.map(l => l.contactId).filter(Boolean));
-    const uniqueContactLeads = contactLeads.filter(c => !leadContactIdsSet.has(c.id));
-
-    const mappedContactLeads = uniqueContactLeads.map(c => {
-      const agent = c.assignedTo ? userMap[c.assignedTo] : null;
-      const tl = agent?.tlId ? userMap[agent.tlId] : null;
-      const admin = agent?.adminId ? userMap[agent.adminId] : (c.adminId ? userMap[c.adminId] : null);
-
-      return {
-        _id: c.id,
-        contactId: c.id,
-        fields: c.fields,
-        batchId: c.batchId,
-        assignedTo: c.assignedTo,
-        agentName: agent ? agent.name : 'Unassigned',
-        tlName: tl ? tl.name : 'N/A',
-        adminName: admin ? admin.name : 'N/A',
-        leadAmount: c.leadAmount || 0,
-        transactionId: c.transactionId,
-        utrCharity: c.utrCharity,
-        charityAmount: c.charityAmount,
-        isCharityConfirmed: !!c.isCharityConfirmed,
-        charityConfirmedAt: c.charityConfirmedAt,
-        charityConfirmedBy: c.charityConfirmedBy,
-        conversionDate: c.conversionDate,
-        status: c.status || 'Pending',
-        remarks: c.remarks || 'Imported Lead',
-        createdAt: c.createdAt,
-        lastModified: c.lastModified,
-        callBackDt: c.callBackDt
-      };
-    });
-
-    const combinedLeads = [...leads.map(l => {
-      const agent = l.assignedTo ? userMap[l.assignedTo] : null;
-      const tl = agent?.tlId ? userMap[agent.tlId] : null;
-      const admin = agent?.adminId ? userMap[agent.adminId] : (l.adminId ? userMap[l.adminId] : null);
-
-      return {
-        ...l, 
-        _id: l.id,
-        agentName: agent ? agent.name : 'Unassigned',
-        tlName: tl ? tl.name : 'N/A',
-        adminName: admin ? admin.name : 'N/A',
-        callBackDt: l.contactId ? contactMap[l.contactId] : null,
-        isCharityConfirmed: !!l.isCharityConfirmed,
-      };
-    }), ...mappedContactLeads];
+    const userMap = await resolveUserNamesForRecords(contacts);
 
     const normalize = (phone) => {
       if (!phone) return 'N/A';
@@ -196,48 +204,79 @@ router.get('/my-leads', verify, authorize(['superadmin', 'agent', 'tl', 'admin']
       return clean.length >= 10 ? clean.slice(-10) : clean || 'N/A';
     };
 
-    // Calculate phone frequency for leadsCount without dropping records
+    // Calculate phone duplicates for the returned contacts
     const phoneCountMap = new Map();
-    combinedLeads.forEach(lead => {
-      const fields = lead.fields || {};
-      const rawPhone = fields.Phone || fields.phone || fields.Mobile;
-      if (rawPhone) {
-        const normPhone = normalize(rawPhone);
-        if (normPhone !== 'N/A') {
-          phoneCountMap.set(normPhone, (phoneCountMap.get(normPhone) || 0) + 1);
-        }
+    const phones = contacts.map(c => {
+      const f = c.fields || {};
+      return f.Phone || f.phone || f.Mobile;
+    }).filter(Boolean);
+
+    if (phones.length > 0) {
+      const normPhones = phones.map(normalize).filter(p => p !== 'N/A');
+      if (normPhones.length > 0) {
+        try {
+          const dupes = await prisma.$queryRawUnsafe(`
+            SELECT right(regexp_replace(fields->>'Phone', '\\D', '', 'g'), 10) as phone, count(*)::int as count
+            FROM contacts
+            WHERE disposition = 'Lead' AND is_deleted = false AND right(regexp_replace(fields->>'Phone', '\\D', '', 'g'), 10) = ANY($1)
+            GROUP BY 1
+          `, normPhones);
+          dupes.forEach(d => {
+            if (d.phone) phoneCountMap.set(d.phone, d.count);
+          });
+        } catch (e) {}
       }
-    });
+    }
 
-    combinedLeads.forEach(lead => {
-      const fields = lead.fields || {};
-      const rawPhone = fields.Phone || fields.phone || fields.Mobile;
+    const mappedLeads = contacts.map(c => {
+      const override = overrideMap[c.id];
+      const agent = c.assignedTo ? userMap[c.assignedTo] : null;
+      const tl = agent?.tlId ? userMap[agent.tlId] : null;
+      const admin = agent?.adminId ? userMap[agent.adminId] : (c.adminId ? userMap[c.adminId] : null);
+
+      const f = c.fields || {};
+      const rawPhone = f.Phone || f.phone || f.Mobile;
       const normPhone = normalize(rawPhone);
-      lead.leadsCount = (normPhone !== 'N/A' && phoneCountMap.has(normPhone)) ? phoneCountMap.get(normPhone) : 1;
+      const leadsCount = (normPhone !== 'N/A' && phoneCountMap.has(normPhone)) ? phoneCountMap.get(normPhone) : 1;
+
+      return {
+        _id: c.id,
+        id: c.id,
+        contactId: c.id,
+        fields: c.fields,
+        batchId: c.batchId,
+        assignedTo: c.assignedTo,
+        agentName: agent ? agent.name : (c.agentName || 'Unassigned'),
+        tlName: tl ? tl.name : 'N/A',
+        adminName: admin ? admin.name : 'N/A',
+        leadAmount: override?.leadAmount !== undefined && override?.leadAmount !== null ? override.leadAmount : (c.leadAmount || 0),
+        transactionId: override?.transactionId || c.transactionId,
+        utrCharity: override?.utrCharity || c.utrCharity,
+        charityAmount: override?.charityAmount !== undefined && override?.charityAmount !== null ? override.charityAmount : c.charityAmount,
+        isCharityConfirmed: override?.isCharityConfirmed !== undefined ? !!override.isCharityConfirmed : !!c.isCharityConfirmed,
+        charityConfirmedAt: override?.charityConfirmedAt || c.charityConfirmedAt,
+        charityConfirmedBy: override?.charityConfirmedBy || c.charityConfirmedBy,
+        conversionDate: override?.conversionDate || c.conversionDate,
+        status: override?.status || c.status || 'Pending',
+        remarks: override?.remarks || c.remarks || 'Imported Lead',
+        createdAt: override?.createdAt || c.createdAt,
+        lastModified: override?.lastModified || c.lastModified,
+        callBackDt: c.callBackDt,
+        leadsCount
+      };
     });
 
-    let result = combinedLeads.sort((a, b) => 
-      new Date(b.lastModified || b.createdAt || 0) - new Date(a.lastModified || a.createdAt || 0)
-    );
-
-    if (search) {
-      const q = search.toLowerCase();
-      result = result.filter(l => {
-        const match = Object.values(l.fields || {}).some(v => String(v).toLowerCase().includes(q)) ||
-          (l.agentName && l.agentName.toLowerCase().includes(q));
-        return match;
+    if (pageNum && limitNum) {
+      return res.json({
+        leads: mappedLeads,
+        total,
+        page: pageNum,
+        limit: limitNum,
+        pages: Math.ceil(total / limitNum)
       });
     }
 
-    if (page) {
-      const pageNum = parseInt(page) || 1;
-      const limitNum = parseInt(limit) || 50;
-      const total = result.length;
-      const paginatedResult = result.slice((pageNum - 1) * limitNum, pageNum * limitNum);
-      return res.json({ leads: paginatedResult, total, page: pageNum, limit: limitNum, pages: Math.ceil(total / limitNum) });
-    }
-
-    res.json(result);
+    res.json(mappedLeads);
   } catch (err) {
     console.error('Fetch leads failed:', err);
     res.status(500).json({ error: 'Server error' });
@@ -247,6 +286,12 @@ router.get('/my-leads', verify, authorize(['superadmin', 'agent', 'tl', 'admin']
 router.get('/stats', verify, authorize(['superadmin', 'agent', 'tl', 'admin']), async (req, res) => {
   try {
     const { agentId } = req.query;
+    const cacheKey = `stats_${req.user.id}_${req.user.role}_${agentId || 'all'}`;
+    const cached = getCachedStats(cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
+
     let whereQuery = {};
     if (req.user.role === 'agent') {
       whereQuery.assignedTo = req.user._id || req.user.id;
@@ -265,40 +310,30 @@ router.get('/stats', verify, authorize(['superadmin', 'agent', 'tl', 'admin']), 
       if (agentId) whereQuery.assignedTo = agentId;
     }
 
-    const [allLeadsArr, allContactsArr] = await Promise.all([
-      prisma.lead.findMany({
-        where: whereQuery,
-        select: { id: true, contactId: true, fields: true, status: true, leadAmount: true, charityAmount: true, isCharityConfirmed: true }
+    const baseWhere = {
+      disposition: 'Lead',
+      isDeleted: false,
+      ...whereQuery
+    };
+
+    const [allLeadsCount, convertedAgg, allAgg] = await Promise.all([
+      prisma.contact.count({ where: baseWhere }),
+      prisma.contact.aggregate({
+        where: { ...baseWhere, status: 'Converted' },
+        _sum: { leadAmount: true, charityAmount: true },
+        _count: { id: true }
       }),
-      prisma.contact.findMany({
-        where: { ...whereQuery, disposition: 'Lead', isDeleted: false },
-        select: { id: true, fields: true, status: true, leadAmount: true, charityAmount: true, isCharityConfirmed: true }
+      prisma.contact.aggregate({
+        where: baseWhere,
+        _sum: { leadAmount: true, charityAmount: true }
       })
     ]);
 
-    const leadContactIdsSet = new Set(allLeadsArr.map(l => l.contactId).filter(Boolean));
-    const uniqueContactLeads = allContactsArr.filter(c => !leadContactIdsSet.has(c.id));
-    const allCombinedLeads = [...allLeadsArr, ...uniqueContactLeads];
+    const totalLeadsCount = convertedAgg._count?.id || 0;
+    const totalAmount = (convertedAgg._sum?.leadAmount || 0) + (convertedAgg._sum?.charityAmount || 0);
+    const allLeadsAmount = (allAgg._sum?.leadAmount || 0) + (allAgg._sum?.charityAmount || 0);
 
-    const getEffAmount = item => (item.isCharityConfirmed && item.charityAmount !== null && item.charityAmount !== undefined)
-      ? (parseFloat(item.charityAmount) || 0)
-      : (parseFloat(item.leadAmount) || 0);
-
-    let allLeadsCount = allCombinedLeads.length;
-    let allLeadsAmount = 0;
-    let totalLeadsCount = 0;
-    let totalAmount = 0;
-
-    allCombinedLeads.forEach(lead => {
-      const effAmount = getEffAmount(lead);
-      allLeadsAmount += effAmount;
-      if (lead.status === 'Converted') {
-        totalLeadsCount += 1;
-        totalAmount += effAmount;
-      }
-    });
-
-    res.json({
+    const result = {
       totalLeads: totalLeadsCount,
       totalAmount: totalAmount,
       allLeads: allLeadsCount,
@@ -308,7 +343,10 @@ router.get('/stats', verify, authorize(['superadmin', 'agent', 'tl', 'admin']), 
       allLead: allLeadsCount,
       allLeadAmount: allLeadsAmount,
       totalLeadValue: totalAmount
-    });
+    };
+
+    setCachedStats(cacheKey, result);
+    res.json(result);
   } catch (err) {
     console.error('Leads stats failed:', err);
     res.status(500).json({ error: 'Server error' });
@@ -593,6 +631,7 @@ router.post('/callbacks/bulk-delete', verify, authorize(['superadmin', 'agent', 
 router.delete('/wipe', verify, authorize(['superadmin']), async (req, res) => {
   try {
     await prisma.lead.deleteMany({});
+    invalidateStatsCache();
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 });
@@ -612,6 +651,7 @@ router.delete('/:id', verify, authorize(['superadmin', 'admin']), async (req, re
         prisma.contact.update({ where: { id: leadId }, data: { isDeleted: true } })
       ]);
     }
+    invalidateStatsCache();
     res.json({ success: true });
   } catch (err) {
     console.error('Delete lead error:', err);
@@ -672,6 +712,7 @@ router.put('/:id', verify, authorize(['superadmin', 'agent', 'tl', 'admin']), as
       const phoneNum = fields.Phone || fields.phone || fields.Mobile;
       if (phoneNum) await consolidateCallbacks(phoneNum);
 
+      invalidateStatsCache();
       broadcast('dashboard_update');
       broadcast('contacts_updated');
       return res.json({ success: true });
@@ -714,6 +755,9 @@ router.put('/:id', verify, authorize(['superadmin', 'agent', 'tl', 'admin']), as
             });
         });
       }
+      invalidateStatsCache();
+      broadcast('dashboard_update');
+      broadcast('contacts_updated');
       res.json({ success: true });
     } else {
       const contact = await prisma.contact.findUnique({ where: { id: leadId } });
@@ -751,6 +795,9 @@ router.put('/:id', verify, authorize(['superadmin', 'agent', 'tl', 'admin']), as
             });
         });
       }
+      invalidateStatsCache();
+      broadcast('dashboard_update');
+      broadcast('contacts_updated');
       res.json({ success: true });
     }
   } catch (err) {
@@ -803,6 +850,7 @@ router.put('/:id/confirm-charity', verify, authorize(['superadmin', 'admin', 'tl
       data: charityData
     }).catch(e => console.warn('Charity confirm lead update note:', e.message));
 
+    invalidateStatsCache();
     broadcast('dashboard_update');
     broadcast('contacts_updated');
 
@@ -834,6 +882,9 @@ router.post('/bulk-delete', verify, authorize(['superadmin', 'admin']), async (r
       })
     ]);
     
+    invalidateStatsCache();
+    broadcast('dashboard_update');
+    broadcast('contacts_updated');
     res.json({ success: true });
   } catch (err) {
     console.error('Bulk delete leads error:', err);
@@ -846,19 +897,46 @@ router.get('/history/:phone', verify, authorize(['superadmin', 'agent', 'tl', 'a
     const phoneParam = req.params.phone;
     if (!phoneParam) return res.status(400).json({ error: 'Phone parameter is required' });
 
-    let whereQuery = { isDeleted: false };
+    let leadWhere = {};
+    let contactWhere = { isDeleted: false, disposition: 'Lead' };
     if (req.user.role === 'agent') {
-      whereQuery.assignedTo = req.user._id || req.user.id;
+      leadWhere.assignedTo = req.user._id || req.user.id;
+      contactWhere.assignedTo = req.user._id || req.user.id;
     } else if (req.user.role === 'tl') {
       const agents = await prisma.user.findMany({ where: { tlId: req.user._id || req.user.id } });
-      whereQuery.assignedTo = { in: agents.map(a => a.id) };
+      const agentIds = agents.map(a => a.id);
+      leadWhere.assignedTo = { in: agentIds };
+      contactWhere.assignedTo = { in: agentIds };
     } else if (req.user.role === 'admin') {
-      whereQuery.adminId = req.user._id || req.user.id;
+      leadWhere.adminId = req.user._id || req.user.id;
+      contactWhere.adminId = req.user._id || req.user.id;
     }
 
+    const cleanDigits = String(phoneParam).replace(/\D/g, '');
+    const searchPhone = cleanDigits.length >= 10 ? cleanDigits.slice(-10) : cleanDigits;
+
+    // Filter using fields JSON or query
     const [leads, contactLeads] = await Promise.all([
-      prisma.lead.findMany({ where: { ...whereQuery, isDeleted: undefined } }),
-      prisma.contact.findMany({ where: { ...whereQuery, disposition: 'Lead' } })
+      prisma.lead.findMany({
+        where: {
+          ...leadWhere,
+          OR: [
+            { fields: { path: ['Phone'], string_contains: searchPhone } },
+            { fields: { path: ['phone'], string_contains: searchPhone } },
+            { fields: { path: ['Mobile'], string_contains: searchPhone } }
+          ]
+        }
+      }),
+      prisma.contact.findMany({
+        where: {
+          ...contactWhere,
+          OR: [
+            { fields: { path: ['Phone'], string_contains: searchPhone } },
+            { fields: { path: ['phone'], string_contains: searchPhone } },
+            { fields: { path: ['Mobile'], string_contains: searchPhone } }
+          ]
+        }
+      })
     ]);
 
     const userMapRaw = await resolveUserNamesForRecords([...leads, ...contactLeads]);
@@ -908,8 +986,19 @@ router.post('/:id/clone-and-dispose', verify, authorize(['superadmin', 'agent', 
     
     if (!contact) {
       const lead = await prisma.lead.findUnique({ where: { id: leadId } });
-      if (lead && lead.contactId) {
-        contact = await prisma.contact.findUnique({ where: { id: lead.contactId } });
+      if (lead) {
+        if (lead.contactId) {
+          contact = await prisma.contact.findUnique({ where: { id: lead.contactId } });
+        }
+        if (!contact) {
+          contact = {
+            id: lead.id,
+            fields: lead.fields || {},
+            batchId: lead.batchId,
+            adminId: lead.adminId,
+            assignedTo: lead.assignedTo
+          };
+        }
       }
     }
     
