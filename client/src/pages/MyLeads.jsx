@@ -97,7 +97,7 @@ const MyLeads = () => {
   
   // Pagination
   const [page, setPage] = useState(1);
-  const [limit] = useState(50);
+  const [limit, setLimit] = useState(50);
   const [totalPages, setTotalPages] = useState(1);
 
   // Status Modal State
@@ -737,7 +737,7 @@ const MyLeads = () => {
           <h3>No matching leads found</h3>
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {filtered.map(lead => {
             if (!lead) return null;
             const fields = lead.fields || {};
@@ -751,324 +751,210 @@ const MyLeads = () => {
             const isLocked = isConverted;
             const hasActiveLeadInHistory = Array.isArray(lead.historyStatuses) && lead.historyStatuses.some(status => status !== 'Converted' && status !== 'Not Interested');
             const isCallButtonLocked = hasActiveLeadInHistory && lead.status !== 'Call Back';
+            const effAmount = lead.isCharityConfirmed && (lead.charityAmount !== null && lead.charityAmount !== undefined) 
+              ? lead.charityAmount 
+              : lead.leadAmount;
 
             return (
-              <div key={leadId} id={`lead-card-${leadId}`} className={`glass-panel lead-list-item ${isSelected ? 'selected' : ''}`} style={{
-                padding: '16px 20px',
-                borderLeft: isSelected ? '4px solid var(--primary)' : `4px solid ${isConverted ? '#10b981' : isNegative ? '#ef4444' : lead.status === 'Call Back' ? '#06b6d4' : 'var(--border)'}`,
-                position: 'relative',
-                opacity: isLocked ? 0.9 : 1
-              }}>
-
+              <div 
+                key={leadId} 
+                id={`lead-card-${leadId}`} 
+                className={`lead-row-compact ${isSelected ? 'selected' : ''}`}
+                style={{
+                  borderLeft: isSelected ? '4px solid var(--primary)' : `4px solid ${isConverted ? '#10b981' : isNegative ? '#ef4444' : lead.status === 'Call Back' ? '#06b6d4' : 'var(--border)'}`,
+                  opacity: isLocked ? 0.95 : 1
+                }}
+              >
+                {/* Admin Checkbox */}
                 {user?.role === 'admin' && (
-                  <div style={{ position: 'absolute', top: 12, left: 12, zIndex: 10 }}>
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      onChange={() => toggleSelect(leadId)}
-                      style={{ width: 18, height: 18, cursor: 'pointer', accentColor: 'var(--primary)' }}
-                    />
-                  </div>
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={() => toggleSelect(leadId)}
+                    style={{ width: 16, height: 16, cursor: 'pointer', accentColor: 'var(--primary)', flexShrink: 0 }}
+                  />
                 )}
 
-                <div className="lead-card-container">
-                  <div className="lead-card-main">
-                    <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start', flex: 1, minWidth: 0 }}>
-                      <div className="lead-card-icon" style={{
-                        background: isConverted ? 'linear-gradient(135deg,#10b981,#059669)' : isNegative ? 'linear-gradient(135deg,#ef4444,#b91c1c)' : lead.status === 'Call Back' ? 'linear-gradient(135deg,#06b6d4,#0891b2)' : 'var(--bg-surface-2)',
-                        color: (isConverted || isNegative || lead.status === 'Call Back') ? '#fff' : 'var(--text-muted)',
-                        marginTop: 2
-                      }}>
-                        <Star size={20} fill={(isConverted || isNegative || lead.status === 'Call Back') ? "white" : "none"} />
-                      </div>
-
-                      <div style={{ minWidth: 0, flex: 1 }}>
-                        {/* ── Line 1: Name | Phone | Date ── */}
-                        <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px 12px', marginBottom: 6 }}>
-                          <h3 style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
-                            {name}
-                          </h3>
-                          <span style={{ color: 'var(--border)', opacity: 0.8 }}>|</span>
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--text-secondary)', fontSize: '0.82rem', fontWeight: 600 }}>
-                            <PhoneCall size={13} style={{ color: 'var(--primary)' }} /> {phone}
-                          </span>
-                          <span style={{ color: 'var(--border)', opacity: 0.8 }}>|</span>
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--text-muted)', fontSize: '0.82rem', fontWeight: 500 }}>
-                            <Calendar size={13} /> {formatSafeDate(lead.lastModified || lead.createdAt)}
-                          </span>
-                          {lead.leadsCount > 1 && (
-                            <button onClick={() => { saveScrollPosition(leadId); fetchHistory(phone, name); }} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--violet)', fontWeight: 700, background: 'rgba(139, 92, 246, 0.1)', border: '1px solid rgba(139, 92, 246, 0.2)', borderRadius: 6, padding: '2px 8px', fontSize: '0.72rem', cursor: 'pointer' }}>
-                              <TrendingUp size={12} /> {lead.leadsCount} Conv.
-                            </button>
-                          )}
-                          {lead.status === 'Call Back' && (
-                            <span className="badge badge-cyan" style={{ fontSize: '0.68rem', padding: '2px 8px' }}>
-                              Lead Callback
-                            </span>
-                          )}
-                        </div>
-
-                        {/* ── Line 2: Agent: <Name> ── */}
-                        {lead.agentName && (
-                          <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: 8, fontWeight: 700, display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '6px' }}>
-                            <span>Agent: <span style={{ color: 'var(--primary)', fontWeight: 800 }}>{lead.agentName}</span></span>
-                            {user?.role === 'superadmin' && lead.tlName && lead.tlName !== 'N/A' && (
-                              <> <span style={{ opacity: 0.4 }}>|</span> <span>TL: <span style={{ color: 'var(--violet)' }}>{lead.tlName}</span></span></>
-                            )}
-                            {user?.role === 'superadmin' && lead.adminName && lead.adminName !== 'N/A' && (
-                              <> <span style={{ opacity: 0.4 }}>|</span> <span>Admin: <span style={{ color: 'var(--success)' }}>{lead.adminName}</span></span></>
-                            )}
-                            {fields.manuallyCreated && (
-                              <span style={{ background: 'rgba(245, 158, 11, 0.12)', color: '#f59e0b', border: '1px solid rgba(245, 158, 11, 0.25)', padding: '1px 6px', borderRadius: '4px', fontWeight: 800, fontSize: '0.62rem', marginLeft: 4 }}>
-                                ✍️ Manually added by {fields.createdByName || 'Staff'}
-                              </span>
-                            )}
-                          </div>
-                        )}
-
-                        {/* ── Line 3: Status Dropdown & Badges ── */}
-                        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 }}>
-                          <select 
-                            className="input-field" 
-                            style={{ 
-                              marginBottom: 0, 
-                              padding: '4px 10px', 
-                              fontSize: '0.78rem', 
-                              height: 32, 
-                              width: 'auto', 
-                              minWidth: 130, 
-                              fontWeight: 700,
-                              cursor: isLocked ? 'not-allowed' : 'pointer' 
-                            }} 
-                            value="" 
-                            disabled={isLocked} 
-                            onChange={(e) => {
-                              if (e.target.value) {
-                                handleStatusChange(lead, e.target.value, 'lead');
-                              }
-                            }}
-                          >
-                            <option value="" disabled>{lead.status ? `Status: ${lead.status}` : 'Set Status'}</option>
-                            <option value="Converted">Converted</option>
-                            <option value="Not Interested">Not Interested</option>
-                            <option value="DNC/DND">DNC/DND</option>
-                            <option value="Call Back">Call Back</option>
-                            <option value="Others">Others</option>
-                          </select>
-
-                          {lead.status && (
-                            <span 
-                              className={`badge ${
-                                lead.status === 'Converted' ? 'badge-success' :
-                                lead.status === 'Call Back' ? 'badge-cyan' :
-                                (lead.status === 'Not Interested' || lead.status === 'DNC/DND') ? 'badge-danger' :
-                                'badge-primary'
-                              }`}
-                              style={{ fontSize: '0.72rem', padding: '4px 8px', fontWeight: 800 }}
-                            >
-                              {lead.status}
-                            </span>
-                          )}
-
-                          {lead.status === 'Call Back' && lead.callBackDt && (
-                            <span className="badge badge-cyan" style={{ fontSize: '0.7rem', padding: '4px 8px' }}>
-                              <Calendar size={11} /> {formatSafeDateTime(lead.callBackDt)}
-                            </span>
-                          )}
-                          {/* ── UTR & Charity Confirmation Section ── */}
-                          {lead.isCharityConfirmed ? (
-                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                              <span className="badge" style={{ fontSize: '0.7rem', padding: '4px 8px', background: 'var(--bg-surface-2)', border: '1px solid var(--border)', color: 'var(--text-secondary)', fontWeight: 700 }}>
-                                UTR-Internal: {lead.transactionId || 'N/A'}
-                              </span>
-                              <span className="badge badge-success" style={{ fontSize: '0.7rem', padding: '4px 8px', display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 800 }}>
-                                ✓ UTR-Charity: {lead.utrCharity}
-                              </span>
-                              <button
-                                type="button"
-                                onClick={(e) => { e.stopPropagation(); openCharityModal(lead); }}
-                                style={{ background: 'none', border: 'none', fontSize: '0.68rem', color: 'var(--primary)', cursor: 'pointer', fontWeight: 800, padding: '2px 4px' }}
-                                title="Edit confirmed charity details"
-                              >
-                                ✏️ Edit Charity
-                              </button>
-                            </div>
-                          ) : (
-                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                              {(lead.transactionId || lead.status === 'Converted') && (
-                                <span className="badge" style={{ fontSize: '0.7rem', padding: '4px 8px', background: 'var(--bg-surface-2)', border: '1px solid var(--border)', color: 'var(--text-secondary)', fontWeight: 700 }}>
-                                  UTR-Internal: {lead.transactionId || 'Pending'}
-                                </span>
-                              )}
-                              {(lead.status === 'Converted' || lead.transactionId) && (
-                                <button
-                                  type="button"
-                                  onClick={(e) => { e.stopPropagation(); openCharityModal(lead); }}
-                                  className="btn btn-sm"
-                                  style={{
-                                    fontSize: '0.68rem',
-                                    padding: '3px 8px',
-                                    borderRadius: '6px',
-                                    fontWeight: 800,
-                                    border: '1px solid #10b981',
-                                    color: '#10b981',
-                                    background: 'rgba(16, 185, 129, 0.1)',
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: 4,
-                                    cursor: 'pointer'
-                                  }}
-                                  title="Confirm with UTR and amount from charity reply email"
-                                >
-                                  ✓ Confirmed by Charity
-                                </button>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                        
-                        {/* ── Line 4: Remarks Box (Clickable to Edit/Re-enter Remarks) ── */}
-                        <div 
-                          onClick={() => !isLocked && handleStatusChange(lead, lead.status || 'Others', 'lead')}
-                          className={`remarks-box-container ${!isLocked ? 'remarks-editable-box' : ''}`}
-                          style={{ 
-                            fontSize: '0.78rem', 
-                            color: 'var(--text-secondary)', 
-                            background: 'var(--bg-surface-2)', 
-                            padding: '8px 12px', 
-                            borderRadius: 10, 
-                            border: '1px solid var(--border)',
-                            lineHeight: 1.4,
-                            cursor: isLocked ? 'default' : 'pointer',
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center',
-                            gap: 10
-                          }}
-                          title={!isLocked ? "Click to edit / re-enter remarks" : ""}
-                        >
-                          <div style={{ flex: 1 }}>
-                            <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Remarks: </span>
-                            <span style={{ fontStyle: 'italic' }}>
-                              {lead.remarks || lead.statusDetails || 'Uploaded via Lead Template'}
-                            </span>
-                          </div>
-                          {!isLocked && (
-                            <span style={{ fontSize: '0.7rem', color: 'var(--primary)', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 3, flexShrink: 0, opacity: 0.85 }}>
-                              ✏️ Edit Remarks
-                            </span>
-                          )}
-                        </div>
-                      </div>
+                {/* Name & Phone */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 200, flexShrink: 0 }}>
+                  <div style={{
+                    width: 28, height: 28, borderRadius: '50%', flexShrink: 0,
+                    background: isConverted ? 'linear-gradient(135deg,#10b981,#059669)' : isNegative ? 'linear-gradient(135deg,#ef4444,#b91c1c)' : lead.status === 'Call Back' ? 'linear-gradient(135deg,#06b6d4,#0891b2)' : 'var(--bg-surface-2)',
+                    color: (isConverted || isNegative || lead.status === 'Call Back') ? '#fff' : 'var(--text-muted)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center'
+                  }}>
+                    <Star size={13} fill={(isConverted || isNegative || lead.status === 'Call Back') ? "white" : "none"} />
+                  </div>
+                  <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <div style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--text-primary)', lineHeight: 1.1 }}>{name}</div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <PhoneCall size={10} style={{ color: 'var(--primary)' }} /> {phone}
                     </div>
                   </div>
+                </div>
 
-                  {/* ── RIGHT ACTION COLUMN: AMOUNT & BUTTONS ── */}
-                  <div className="lead-card-actions">
-                    <div className="lead-amount-box" style={{ textAlign: 'right' }}>
-                      {lead.isCharityConfirmed && (lead.charityAmount !== null && lead.charityAmount !== undefined) ? (
-                        <>
-                          <div style={{ fontSize: '0.62rem', fontWeight: 800, color: '#10b981', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                            Charity Amount
-                          </div>
-                          <div style={{ fontSize: '1.45rem', fontWeight: 900, color: '#10b981', lineHeight: 1.1, margin: '2px 0' }}>
-                            ₹{(lead.charityAmount || 0).toLocaleString()}
-                          </div>
-                          <div style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-muted)' }}>
-                            Agent: ₹{(lead.leadAmount || 0).toLocaleString()}
-                          </div>
-                        </>
-                      ) : (
-                        <>
-                          <div style={{ fontSize: '0.65rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Amount</div>
-                          <div style={{ fontSize: '1.35rem', fontWeight: 900, color: '#10b981', lineHeight: 1.1, margin: '2px 0' }}>
-                            ₹{(lead.leadAmount || 0).toLocaleString()}
-                          </div>
-                          {lead.totalAmount > lead.leadAmount && (
-                            <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--violet)' }}>
-                              Total: ₹{lead.totalAmount.toLocaleString()}
-                            </div>
-                          )}
-                        </>
-                      )}
-                    </div>
+                {/* Status Dropdown & Badge */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                  <select 
+                    className="input-field" 
+                    style={{ 
+                      marginBottom: 0, 
+                      padding: '2px 8px', 
+                      fontSize: '0.72rem', 
+                      height: 28, 
+                      width: 'auto', 
+                      fontWeight: 700,
+                      cursor: isLocked ? 'not-allowed' : 'pointer' 
+                    }} 
+                    value="" 
+                    disabled={isLocked} 
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        handleStatusChange(lead, e.target.value, 'lead');
+                      }
+                    }}
+                  >
+                    <option value="" disabled>{lead.status ? `${lead.status}` : 'Set Status'}</option>
+                    <option value="Converted">Converted</option>
+                    <option value="Not Interested">Not Interested</option>
+                    <option value="DNC/DND">DNC/DND</option>
+                    <option value="Call Back">Call Back</option>
+                    <option value="Others">Others</option>
+                  </select>
 
-                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                      {user?.role !== 'admin' && phone !== 'N/A' && (
-                        <>
-                          {!isLocked && (
-                            <button
-                              className="btn btn-icon"
-                              style={{ width: 36, height: 36, borderRadius: 10, background: 'var(--bg-surface-2)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
-                              title="Upload / Scan Receipt & Convert"
-                              onClick={() => openReceiptModal(lead)}
-                              type="button"
-                            >
-                              <ImageIcon size={17} />
-                            </button>
-                          )}
-                          <a 
-                            href={`https://wa.me/${String(phone).replace(/\D/g, '')}`} 
-                            target="_blank" 
-                            rel="noopener noreferrer" 
-                            className="btn btn-icon" 
-                            style={{ width: 36, height: 36, borderRadius: 10, background: '#25D366', color: '#fff' }}
-                            title="Message on WhatsApp"
-                            onClick={() => saveScrollPosition(leadId)}
-                          >
-                            <WhatsAppIcon size={17} fill="currentColor" />
-                          </a>
-                          <button 
-                            className="btn btn-primary btn-icon" 
-                            style={{ 
-                              width: 36, 
-                              height: 36, 
-                              borderRadius: 10,
-                              ...(isCallButtonLocked ? {
-                                background: 'var(--bg-surface-2)',
-                                border: '1px solid var(--border)',
-                                color: 'var(--text-muted)',
-                                opacity: 0.5,
-                                cursor: 'not-allowed'
-                              } : {})
-                            }}
-                            disabled={isCallButtonLocked}
-                            onClick={async () => {
-                              saveScrollPosition(leadId);
-                              if (lead.status === 'Call Back') {
-                                triggerTelCall(phone);
-                                return;
-                              }
+                  {lead.status && (
+                    <span 
+                      className={`badge ${
+                        lead.status === 'Converted' ? 'badge-success' :
+                        lead.status === 'Call Back' ? 'badge-cyan' :
+                        (lead.status === 'Not Interested' || lead.status === 'DNC/DND') ? 'badge-danger' :
+                        'badge-primary'
+                      }`}
+                      style={{ fontSize: '0.68rem', padding: '2px 6px', fontWeight: 800 }}
+                    >
+                      {lead.status}
+                    </span>
+                  )}
+                </div>
 
-                              try {
-                                const response = await api.get(`/leads/history/${phone}`);
-                                const history = response.data || [];
-                                const activeLead = history.find(item => (item._id || item.id) !== leadId && item.status !== 'Converted');
-                                if (activeLead) {
-                                  alert(`Already containing the lead with the lead status: ${activeLead.status}`);
-                                  return;
-                                }
-                              } catch (err) {
-                                console.error('Failed to check lead history', err);
-                              }
+                {/* Amount & UTR Badges */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                  <span style={{ padding: '2px 8px', borderRadius: 999, background: 'rgba(16,185,129,0.12)', color: '#10b981', fontWeight: 900, fontSize: '0.8rem' }}>
+                    ₹{(effAmount || 0).toLocaleString()}
+                  </span>
 
-                              triggerTelCall(phone);
-                              openCallActionModal(lead);
-                            }}
-                            title={isCallButtonLocked ? "Call Locked - Active lead in history" : "Call Lead"}
-                            type="button"
-                          >
-                            <PhoneCall size={16} fill={isCallButtonLocked ? "gray" : "white"} />
-                          </button>
-                        </>
-                      )}
-                      {user?.role === 'admin' && (
-                        <button className="btn btn-danger btn-icon" onClick={() => handleDelete(leadId)} style={{ width: 36, height: 36, borderRadius: 10 }} type="button">
-                          <Trash2 size={16} />
+                  {lead.isCharityConfirmed ? (
+                    <span className="badge badge-success" style={{ fontSize: '0.65rem', padding: '2px 6px', fontWeight: 800 }}>
+                      ✓ UTR-Charity: {lead.utrCharity}
+                    </span>
+                  ) : (
+                    (lead.status === 'Converted' || lead.transactionId) && (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); openCharityModal(lead); }}
+                        className="btn btn-sm"
+                        style={{ fontSize: '0.65rem', padding: '2px 6px', borderRadius: '4px', fontWeight: 800, border: '1px solid #10b981', color: '#10b981', background: 'rgba(16, 185, 129, 0.1)', cursor: 'pointer' }}
+                        title="Confirm with UTR and amount from charity reply email"
+                      >
+                        ✓ Confirmed by Charity
+                      </button>
+                    )
+                  )}
+
+                  {lead.leadsCount > 1 && (
+                    <button onClick={() => { saveScrollPosition(leadId); fetchHistory(phone, name); }} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: 'var(--violet)', fontWeight: 700, background: 'rgba(139, 92, 246, 0.1)', border: '1px solid rgba(139, 92, 246, 0.2)', borderRadius: 4, padding: '1px 6px', fontSize: '0.65rem', cursor: 'pointer' }}>
+                      <TrendingUp size={11} /> {lead.leadsCount} Conv.
+                    </button>
+                  )}
+                </div>
+
+                {/* Remarks (Compact Truncated Single-Line) */}
+                <div 
+                  onClick={() => !isLocked && handleStatusChange(lead, lead.status || 'Others', 'lead')}
+                  className="remarks-compact-box"
+                  title={`Remarks: ${lead.remarks || lead.statusDetails || 'Uploaded via Lead Template'} ${!isLocked ? '(Click to edit)' : ''}`}
+                >
+                  <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>Remarks: </span>
+                  <span style={{ fontStyle: 'italic' }}>
+                    {lead.remarks || lead.statusDetails || 'Uploaded via Lead Template'}
+                  </span>
+                </div>
+
+                {/* Action Buttons */}
+                <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexShrink: 0 }}>
+                  {user?.role !== 'admin' && phone !== 'N/A' && (
+                    <>
+                      {!isLocked && (
+                        <button
+                          className="btn btn-icon"
+                          style={{ width: 30, height: 30, borderRadius: 8, background: 'var(--bg-surface-2)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
+                          title="Upload / Scan Receipt & Convert"
+                          onClick={() => openReceiptModal(lead)}
+                          type="button"
+                        >
+                          <ImageIcon size={14} />
                         </button>
                       )}
-                    </div>
-                  </div>
+                      <a 
+                        href={`https://wa.me/${String(phone).replace(/\D/g, '')}`} 
+                        target="_blank" 
+                        rel="noopener noreferrer" 
+                        className="btn btn-icon" 
+                        style={{ width: 30, height: 30, borderRadius: 8, background: '#25D366', color: '#fff' }}
+                        title="Message on WhatsApp"
+                        onClick={() => saveScrollPosition(leadId)}
+                      >
+                        <WhatsAppIcon size={14} fill="currentColor" />
+                      </a>
+                      <button 
+                        className="btn btn-primary btn-icon" 
+                        style={{ 
+                          width: 30, 
+                          height: 30, 
+                          borderRadius: 8,
+                          ...(isCallButtonLocked ? {
+                            background: 'var(--bg-surface-2)',
+                            border: '1px solid var(--border)',
+                            color: 'var(--text-muted)',
+                            opacity: 0.5,
+                            cursor: 'not-allowed'
+                          } : {})
+                        }}
+                        disabled={isCallButtonLocked}
+                        onClick={async () => {
+                          saveScrollPosition(leadId);
+                          if (lead.status === 'Call Back') {
+                            triggerTelCall(phone);
+                            return;
+                          }
+
+                          try {
+                            const response = await api.get(`/leads/history/${phone}`);
+                            const history = response.data || [];
+                            const activeLead = history.find(item => (item._id || item.id) !== leadId && item.status !== 'Converted');
+                            if (activeLead) {
+                              alert(`Already containing the lead with the lead status: ${activeLead.status}`);
+                              return;
+                            }
+                          } catch (err) {
+                            console.error('Failed to check lead history', err);
+                          }
+
+                          triggerTelCall(phone);
+                          openCallActionModal(lead);
+                        }}
+                        title={isCallButtonLocked ? "Call Locked - Active lead in history" : "Call Lead"}
+                        type="button"
+                      >
+                        <PhoneCall size={14} fill={isCallButtonLocked ? "gray" : "white"} />
+                      </button>
+                    </>
+                  )}
+                  {user?.role === 'admin' && (
+                    <button className="btn btn-danger btn-icon" onClick={() => handleDelete(leadId)} style={{ width: 30, height: 30, borderRadius: 8 }} type="button">
+                      <Trash2 size={14} />
+                    </button>
+                  )}
                 </div>
               </div>
             );
@@ -1113,6 +999,23 @@ const MyLeads = () => {
           >
             Next
           </button>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.88rem', color: 'var(--text-muted)', marginLeft: 8 }}>
+            <span>Show:</span>
+            <select
+              value={limit}
+              onChange={(e) => {
+                setLimit(Number(e.target.value));
+                setPage(1);
+              }}
+              className="input-field"
+              style={{ marginBottom: 0, padding: '4px 8px', fontSize: '0.82rem', height: 32, width: 'auto', fontWeight: 800 }}
+            >
+              <option value={50}>50 per page</option>
+              <option value={100}>100 per page</option>
+              <option value={150}>150 per page</option>
+            </select>
+          </div>
         </div>
       )}
 

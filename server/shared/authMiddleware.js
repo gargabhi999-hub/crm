@@ -48,7 +48,7 @@ function sign(user) {
   return jwt.sign(
     { _id: user._id || user.id, id: user.id || user._id, username: user.username, name: user.name, role: user.role, tlId: user.tlId, adminId: user.adminId },
     JWT_SECRET,
-    { expiresIn: '2h' }
+    { expiresIn: '30d' }
   );
 }
 
