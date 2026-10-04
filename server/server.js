@@ -123,7 +123,7 @@ authRouter.post('/login', async (req, res) => {
 
     const user = await prisma.user.findUnique({
       where: { username: username.trim().toLowerCase() },
-      select: { password: 1, active: 1, id: 1, username: 1, name: 1, role: 1, tlId: 1, adminId: 1, receiverMail: 1 }
+      select: { password: true, active: true, id: true, username: true, name: true, role: true, tlId: true, adminId: true, receiverMail: true }
     });
 
     if (!user) return res.json({ error: 'Invalid credentials' });
