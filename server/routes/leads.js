@@ -713,9 +713,20 @@ router.put('/:id', verify, authorize(['superadmin', 'agent', 'tl', 'admin']), as
       if (phoneNum) await consolidateCallbacks(phoneNum);
 
       invalidateStatsCache();
+      broadcast('lead_updated', {
+        leadId,
+        contactId,
+        data: {
+          status: 'Call Back',
+          remarks: req.body.remarks || leadObj.remarks || 'Status changed from Lead to Callback',
+          callBackDt
+        },
+        agentId: req.user._id || req.user.id,
+        agentName: req.user.name
+      });
       broadcast('dashboard_update');
       broadcast('contacts_updated');
-      return res.json({ success: true });
+      return res.json({ success: true, lead: { id: leadId, status: 'Call Back', remarks: req.body.remarks, callBackDt } });
     }
 
     if (lead) {
@@ -756,9 +767,16 @@ router.put('/:id', verify, authorize(['superadmin', 'agent', 'tl', 'admin']), as
         });
       }
       invalidateStatsCache();
+      broadcast('lead_updated', {
+        leadId,
+        contactId: lead.contactId,
+        data: { ...updateData, ...contactUpdate },
+        agentId: req.user._id || req.user.id,
+        agentName: req.user.name
+      });
       broadcast('dashboard_update');
       broadcast('contacts_updated');
-      res.json({ success: true });
+      res.json({ success: true, lead: { id: leadId, ...updateData, ...contactUpdate } });
     } else {
       const contact = await prisma.contact.findUnique({ where: { id: leadId } });
       if (contact && contact.status === 'Converted' && req.body.status && req.body.status !== 'Converted') {
@@ -796,9 +814,16 @@ router.put('/:id', verify, authorize(['superadmin', 'agent', 'tl', 'admin']), as
         });
       }
       invalidateStatsCache();
+      broadcast('lead_updated', {
+        leadId,
+        contactId: leadId,
+        data: { ...updateData, ...contactUpdate },
+        agentId: req.user._id || req.user.id,
+        agentName: req.user.name
+      });
       broadcast('dashboard_update');
       broadcast('contacts_updated');
-      res.json({ success: true });
+      res.json({ success: true, lead: { id: leadId, ...updateData, ...contactUpdate } });
     }
   } catch (err) {
     console.error('Update lead error:', err);
@@ -851,6 +876,13 @@ router.put('/:id/confirm-charity', verify, authorize(['superadmin', 'admin', 'tl
     }).catch(e => console.warn('Charity confirm lead update note:', e.message));
 
     invalidateStatsCache();
+    broadcast('lead_updated', {
+      leadId,
+      contactId,
+      data: charityData,
+      agentId: req.user._id || req.user.id,
+      agentName: req.user.name
+    });
     broadcast('dashboard_update');
     broadcast('contacts_updated');
 
@@ -1081,7 +1113,25 @@ router.post('/:id/clone-and-dispose', verify, authorize(['superadmin', 'agent', 
       if (phoneNum) await consolidateCallbacks(phoneNum);
     }
 
-    broadcast('contact_disposed', { contactId: newContactId, disposition, agentName: req.user.name });
+    broadcast('lead_updated', {
+      leadId: newContactId,
+      contactId: newContactId,
+      data: {
+        status: finalStatus,
+        disposition,
+        remarks: newContact.remarks,
+        leadAmount: newContact.leadAmount
+      },
+      agentId: req.user._id || req.user.id,
+      agentName: req.user.name
+    });
+    broadcast('contact_disposed', {
+      contactId: newContactId,
+      leadId: newContactId,
+      disposition,
+      status: finalStatus,
+      agentName: req.user.name
+    });
     broadcast('dashboard_update');
     broadcast('contacts_updated');
 
@@ -1304,6 +1354,13 @@ router.post('/create', verify, authorize(['superadmin', 'admin', 'tl', 'agent'])
       });
     }
 
+    broadcast('lead_created', {
+      lead,
+      contact,
+      agentId: assignedTo,
+      adminId,
+      agentName
+    });
     broadcast('dashboard_update');
     broadcast('contacts_updated');
 

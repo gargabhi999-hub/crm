@@ -465,6 +465,13 @@ router.put('/:id/confirm-charity', verify, authorize(['superadmin', 'admin', 'tl
       data: charityData
     }).catch(e => console.warn('Charity confirm lead update note:', e.message));
 
+    broadcast('lead_updated', {
+      contactId,
+      leadId: contactId,
+      data: charityData,
+      agentId: req.user._id || req.user.id,
+      agentName: req.user.name
+    });
     broadcast('dashboard_update');
     broadcast('contacts_updated');
 
@@ -1220,6 +1227,13 @@ router.put('/:id/status', verify, authorize(['superadmin', 'agent', 'tl', 'admin
     }
 
     await prisma.contact.update({ where: { id: contact.id }, data: update });
+    broadcast('lead_updated', {
+      contactId: contact.id,
+      leadId: contact.id,
+      data: update,
+      agentId: req.user._id || req.user.id,
+      agentName: req.user.name
+    });
     broadcast('dashboard_update');
     broadcast('contacts_updated');
 

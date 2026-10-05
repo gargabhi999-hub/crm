@@ -100,10 +100,8 @@ const DueTaskModal = () => {
       setTaskData(null);
       setDispForm({ disposition: '', remarks: '', appointmentDt: '', leadAmount: '', callBackDt: '', status: '', statusDetails: '', transactionId: '' });
       
-      // Refresh current page if on workflow
-      if (window.location.pathname === '/workflow') {
-        window.location.reload();
-      }
+      // Notify workflow if active without full page reload
+      window.dispatchEvent(new CustomEvent('due_task_disposed', { detail: { contactId: contact._id } }));
     } catch (err) {
       alert(err.response?.data?.error || 'Disposition failed');
     } finally {

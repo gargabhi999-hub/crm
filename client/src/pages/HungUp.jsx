@@ -12,9 +12,9 @@ const HungUp = () => {
   const [loading,    setLoading]    = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
 
-  const fetchData = async () => {
+  const fetchData = async (silent = false) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       // Fetch both HungUp and CallNotAnswered
       const [hungUpRes, unansweredRes] = await Promise.all([
         api.get('/contacts?disposition=HungUp'),
@@ -39,11 +39,12 @@ const HungUp = () => {
   useEffect(() => {
     fetchData();
     if (!socket) return;
-    socket.on('contact_disposed', fetchData);
-    socket.on('contacts_updated', fetchData);
+    const silentHandler = () => fetchData(true);
+    socket.on('contact_disposed', silentHandler);
+    socket.on('contacts_updated', silentHandler);
     return () => {
-      socket.off('contact_disposed', fetchData);
-      socket.off('contacts_updated', fetchData);
+      socket.off('contact_disposed', silentHandler);
+      socket.off('contacts_updated', silentHandler);
     };
   }, [socket]);
 

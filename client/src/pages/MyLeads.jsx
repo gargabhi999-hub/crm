@@ -61,6 +61,10 @@ const MyLeads = () => {
   const { user } = useAuth();
   const { socket } = useSocket();
   const [leads, setLeads] = useState([]);
+  const leadsRef = useRef(leads);
+  useEffect(() => {
+    leadsRef.current = leads;
+  }, [leads]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [sourceFilter, setSourceFilter] = useState('all');
@@ -128,10 +132,14 @@ const MyLeads = () => {
   // Scroll Position Persistence Ref & Functions
   const activeLeadIdRef = useRef(null);
   const scrollPosRef = useRef(0);
+  const tableScrollTopRef = useRef(0);
 
   const saveScrollPosition = (leadId = null) => {
     try {
       if (leadId) activeLeadIdRef.current = leadId;
+      if (tableContainerRef.current) {
+        tableScrollTopRef.current = tableContainerRef.current.scrollTop;
+      }
       const y = window.scrollY || document.documentElement.scrollTop || 0;
       if (y > 0) {
         scrollPosRef.current = y;
@@ -143,16 +151,24 @@ const MyLeads = () => {
   const restoreScrollPosition = (targetLeadId = null) => {
     try {
       const activeId = targetLeadId || activeLeadIdRef.current;
-      const saved = scrollPosRef.current || parseInt(sessionStorage.getItem('myleads_scroll_pos') || '0', 10);
+      const savedTableTop = tableScrollTopRef.current;
+      const savedWindowY = scrollPosRef.current || parseInt(sessionStorage.getItem('myleads_scroll_pos') || '0', 10);
       
       const doRestore = () => {
-        if (saved > 0) {
-          window.scrollTo({ top: saved, behavior: 'instant' });
+        if (tableContainerRef.current && savedTableTop > 0) {
+          tableContainerRef.current.scrollTop = savedTableTop;
         }
-        if (activeId) {
+        if (savedWindowY > 0) {
+          window.scrollTo({ top: savedWindowY, behavior: 'instant' });
+        }
+        if (activeId && tableContainerRef.current) {
           const el = document.getElementById(`lead-card-${activeId}`);
-          if (el && (!saved || Math.abs((window.scrollY || 0) - saved) > 50)) {
-            el.scrollIntoView({ block: 'center', behavior: 'instant' });
+          if (el) {
+            const elRect = el.getBoundingClientRect();
+            const containerRect = tableContainerRef.current.getBoundingClientRect();
+            if (elRect.top < containerRect.top || elRect.bottom > containerRect.bottom) {
+              el.scrollIntoView({ block: 'nearest', behavior: 'instant' });
+            }
           }
         }
       };
@@ -184,7 +200,22 @@ const MyLeads = () => {
   const handleCharitySuccess = (updatedLead) => {
     addToast('Lead confirmed by charity successfully!', 'success');
     const leadId = updatedLead?._id || updatedLead?.id || updatedLead?.contactId;
-    fetchData(true, leadId);
+    setLeads(prev => prev.map(l => {
+      const isMatch = (l._id && (l._id === leadId || l._id === updatedLead.contactId)) ||
+                      (l.id && (l.id === leadId || l.id === updatedLead.contactId)) ||
+                      (l.contactId && (l.contactId === updatedLead.contactId || l.contactId === leadId));
+      if (isMatch) {
+        return {
+          ...l,
+          isCharityConfirmed: true,
+          utrCharity: updatedLead.utrCharity || l.utrCharity,
+          charityAmount: updatedLead.charityAmount !== undefined ? updatedLead.charityAmount : l.charityAmount
+        };
+      }
+      return l;
+    }));
+    api.get('/leads/stats').then(res => { if (res.data) setStats(res.data); }).catch(() => {});
+    restoreScrollPosition(leadId);
   };
 
   const handleDatePresetChange = (preset) => {
@@ -264,7 +295,7 @@ const MyLeads = () => {
   const fetchData = async (silent = false, targetLeadId = null) => {
     try {
       saveScrollPosition(targetLeadId);
-      if (!silent && (!leads || leads.length === 0)) {
+      if (!silent && (!leadsRef.current || leadsRef.current.length === 0)) {
         setLoading(true);
       }
       const params = new URLSearchParams();
@@ -274,7 +305,8 @@ const MyLeads = () => {
       if (convertedStartDate) params.append('convertedFrom', convertedStartDate);
       if (convertedEndDate) params.append('convertedTo', convertedEndDate);
 
-      const fetchLimit = silent ? Math.max(limit, leads.length || limit) : limit;
+      const currentCount = leadsRef.current ? leadsRef.current.length : 0;
+      const fetchLimit = silent ? Math.max(limit, currentCount || limit) : limit;
       params.append('page', 1);
       params.append('limit', fetchLimit);
 
@@ -287,7 +319,30 @@ const MyLeads = () => {
         ? leadsRes.data.leads 
         : (Array.isArray(leadsRes.data) ? leadsRes.data : []);
       
-      setLeads(incomingLeads);
+      if (silent) {
+        setLeads(prev => {
+          if (!prev || prev.length === 0) return incomingLeads;
+          const incomingMap = new Map();
+          incomingLeads.forEach(l => {
+            const key = l._id || l.id || l.contactId;
+            if (key) incomingMap.set(key, l);
+          });
+          const updated = prev.map(old => {
+            const key = old._id || old.id || old.contactId;
+            return incomingMap.has(key) ? { ...old, ...incomingMap.get(key) } : old;
+          });
+          incomingLeads.forEach(l => {
+            const key = l._id || l.id || l.contactId;
+            if (key && !prev.some(p => (p._id || p.id || p.contactId) === key)) {
+              updated.push(l);
+            }
+          });
+          return updated;
+        });
+      } else {
+        setLeads(incomingLeads);
+      }
+
       const totalP = leadsRes.data?.pages || 1;
       setTotalPages(totalP);
       const totalL = leadsRes.data?.total ?? incomingLeads.length;
@@ -303,10 +358,11 @@ const MyLeads = () => {
           tableContainerRef.current.scrollTop = 0;
         }
       } else {
-        const currentPagesCovered = Math.ceil(incomingLeads.length / limit);
+        const covered = Math.max(incomingLeads.length, currentCount);
+        const currentPagesCovered = Math.ceil(covered / limit);
         setPage(currentPagesCovered || 1);
         pageRef.current = currentPagesCovered || 1;
-        const moreAvailable = incomingLeads.length < totalL;
+        const moreAvailable = covered < totalL;
         setHasMore(moreAvailable);
         hasMoreRef.current = moreAvailable;
       }
@@ -372,6 +428,7 @@ const MyLeads = () => {
 
   const handleTableScroll = (e) => {
     const { scrollTop, scrollHeight, clientHeight } = e.target;
+    tableScrollTopRef.current = scrollTop;
     // Auto-load next batch when user scrolls near the bottom of loaded leads
     if (scrollHeight - scrollTop - clientHeight < 300) {
       if (!loadingMoreRef.current && hasMoreRef.current && !loading) {
@@ -507,12 +564,87 @@ const MyLeads = () => {
 
   useEffect(() => {
     fetchData();
-    if (!socket) return;
-    const handleSilentSync = () => fetchData(true);
+  }, [limit, searchTerm, sourceFilter, statusFilter, convertedStartDate, convertedEndDate]);
 
-    socket.on('contact_disposed', handleSilentSync);
-    socket.on('dashboard_update', handleSilentSync);
-    socket.on('contacts_updated', handleSilentSync);
+  useEffect(() => {
+    if (!socket) return;
+
+    // Real-time Targeted Lead Update: updates the exact row in-place without page or table reload!
+    const onLeadUpdated = (payload) => {
+      if (!payload) return;
+      const targetLeadId = payload.leadId;
+      const targetContactId = payload.contactId;
+      const updates = payload.data || payload.lead || {};
+
+      setLeads(prev => {
+        let changed = false;
+        const next = prev.map(item => {
+          const matches = (targetLeadId && ((item._id && item._id === targetLeadId) || (item.id && item.id === targetLeadId))) ||
+                          (targetContactId && ((item.contactId && item.contactId === targetContactId) || (item._id && item._id === targetContactId) || (item.id && item.id === targetContactId)));
+          if (matches) {
+            changed = true;
+            return {
+              ...item,
+              ...updates,
+              fields: updates.fields ? { ...item.fields, ...updates.fields } : item.fields,
+              lastModified: new Date()
+            };
+          }
+          return item;
+        });
+        return changed ? next : prev;
+      });
+
+      // Silently refresh summary stats cards without touching table rows
+      api.get('/leads/stats').then(res => {
+        if (res.data) setStats(res.data);
+      }).catch(() => {});
+    };
+
+    // Real-time Lead Created: prepend if belongs to agent or admin
+    const onLeadCreated = (payload) => {
+      if (!payload) return;
+      const newLead = payload.lead || payload.contact;
+      if (!newLead) return;
+
+      const isAdmin = user?.role === 'admin' || user?.role === 'superadmin';
+      const myId = user?._id || user?.id;
+      const isMyLead = isAdmin || (newLead.assignedTo === myId);
+      if (!isMyLead) return;
+
+      setLeads(prev => {
+        const id = newLead._id || newLead.id;
+        if (id && prev.some(l => (l._id || l.id) === id)) return prev;
+        return [newLead, ...prev];
+      });
+
+      setTotalCount(prev => prev + 1);
+      api.get('/leads/stats').then(res => {
+        if (res.data) setStats(res.data);
+      }).catch(() => {});
+    };
+
+    // Dashboard update: ONLY refresh aggregate stats, NEVER wipe the leads table!
+    const onDashboardUpdate = () => {
+      api.get('/leads/stats').then(res => {
+        if (res.data) setStats(res.data);
+      }).catch(() => {});
+    };
+
+    // General contacts updated: debounced silent sync that preserves loaded count
+    let debounceTimer = null;
+    const onContactsUpdated = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        fetchData(true);
+      }, 2000);
+    };
+
+    socket.on('lead_updated', onLeadUpdated);
+    socket.on('contact_disposed', onLeadUpdated);
+    socket.on('lead_created', onLeadCreated);
+    socket.on('dashboard_update', onDashboardUpdate);
+    socket.on('contacts_updated', onContactsUpdated);
 
     const emailStatusHandler = (data) => {
       if (data && (data.agentId === user?._id || data.agentId === user?.id)) {
@@ -526,12 +658,15 @@ const MyLeads = () => {
     socket.on('email_status', emailStatusHandler);
 
     return () => {
-      socket.off('contact_disposed', handleSilentSync);
-      socket.off('dashboard_update', handleSilentSync);
-      socket.off('contacts_updated', handleSilentSync);
+      if (debounceTimer) clearTimeout(debounceTimer);
+      socket.off('lead_updated', onLeadUpdated);
+      socket.off('contact_disposed', onLeadUpdated);
+      socket.off('lead_created', onLeadCreated);
+      socket.off('dashboard_update', onDashboardUpdate);
+      socket.off('contacts_updated', onContactsUpdated);
       socket.off('email_status', emailStatusHandler);
     };
-  }, [socket, limit, searchTerm, sourceFilter, statusFilter, convertedStartDate, convertedEndDate]);
+  }, [socket, user]);
 
   const toggleSelect = (id) => {
     setSelectedIds(prev =>
@@ -558,8 +693,10 @@ const MyLeads = () => {
     if (!window.confirm('Are you sure you want to delete this lead? This will remove all associated data.')) return;
     try {
       await api.delete(`/leads/${id}`);
-      fetchData(true);
+      setLeads(prev => prev.filter(i => (i._id || i.id) !== id));
       setSelectedIds(prev => prev.filter(i => i !== id));
+      setTotalCount(prev => Math.max(0, prev - 1));
+      api.get('/leads/stats').then(res => { if (res.data) setStats(res.data); }).catch(() => {});
     } catch (err) {
       alert(err.response?.data?.error || 'Delete failed');
     }
@@ -569,8 +706,11 @@ const MyLeads = () => {
     if (!window.confirm(`Are you sure you want to delete ${selectedIds.length} selected leads?`)) return;
     try {
       await api.post('/leads/bulk-delete', { ids: selectedIds });
+      const delSet = new Set(selectedIds);
+      setLeads(prev => prev.filter(i => !delSet.has(i._id || i.id)));
+      setTotalCount(prev => Math.max(0, prev - selectedIds.length));
       setSelectedIds([]);
-      fetchData(true);
+      api.get('/leads/stats').then(res => { if (res.data) setStats(res.data); }).catch(() => {});
     } catch (err) {
       alert('Bulk delete failed');
     }
@@ -620,6 +760,25 @@ const MyLeads = () => {
       const cid = modalLead.contactId || modalLead._id || modalLead.id;
       const leadId = modalLead._id || modalLead.id;
 
+      // Optimistic in-place update so UI reflects immediately without any jump or reload!
+      setLeads(prev => prev.map(l => {
+        const isMatch = (l._id && (l._id === leadId || l._id === cid)) ||
+                        (l.id && (l.id === leadId || l.id === cid)) ||
+                        (l.contactId && (l.contactId === cid || l.contactId === leadId));
+        if (isMatch) {
+          return {
+            ...l,
+            status: modalStatus,
+            remarks: formData.remarks !== undefined ? formData.remarks : l.remarks,
+            leadAmount: formData.leadAmount !== undefined ? parseFloat(formData.leadAmount) : l.leadAmount,
+            callBackDt: formData.callBackDt || l.callBackDt,
+            transactionId: formData.transactionId !== undefined ? formData.transactionId : l.transactionId,
+            lastModified: new Date()
+          };
+        }
+        return l;
+      }));
+
       if (modalStatus === 'Call Back') {
         const checkRes = await api.get(`/contacts/${cid}/check-callback`);
         if (checkRes.data?.exists) {
@@ -638,7 +797,7 @@ const MyLeads = () => {
             alert('Existing callback updated successfully!');
             setModalLead(null);
             setModalStatus(null);
-            await fetchData(true, activeId);
+            api.get('/leads/stats').then(res => { if (res.data) setStats(res.data); }).catch(() => {});
             restoreScrollPosition(activeId);
             return;
           }
@@ -666,10 +825,11 @@ const MyLeads = () => {
       
       setModalLead(null);
       setModalStatus(null);
-      await fetchData(true, activeId);
+      api.get('/leads/stats').then(res => { if (res.data) setStats(res.data); }).catch(() => {});
       restoreScrollPosition(activeId);
     } catch (err) {
       alert(err.response?.data?.error || 'Update failed');
+      await fetchData(true, activeId);
     } finally {
       setModalSubmitting(false);
       restoreScrollPosition(activeId);
@@ -707,11 +867,26 @@ const MyLeads = () => {
     saveScrollPosition(activeId);
     try {
       const cid = callActionLead.contactId || callActionLead._id || callActionLead.id;
+      setLeads(prev => prev.map(l => {
+        const isMatch = (l._id && (l._id === activeId || l._id === cid)) ||
+                        (l.id && (l.id === activeId || l.id === cid)) ||
+                        (l.contactId && (l.contactId === cid || l.contactId === activeId));
+        if (isMatch) {
+          return {
+            ...l,
+            status: data.status || l.status,
+            remarks: data.remarks !== undefined ? data.remarks : l.remarks,
+            leadAmount: data.leadAmount !== undefined ? parseFloat(data.leadAmount) : l.leadAmount
+          };
+        }
+        return l;
+      }));
+
       const res = await api.post(`/leads/${cid}/clone-and-dispose`, data);
       
       if (res.data?.success) {
         setCallActionLead(null);
-        await fetchData(true, activeId);
+        api.get('/leads/stats').then(r => { if (r.data) setStats(r.data); }).catch(() => {});
         restoreScrollPosition(activeId);
         addToast(`Call action saved. Lead status: ${data.status || 'Updated'}`, 'success');
       }

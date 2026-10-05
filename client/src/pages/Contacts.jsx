@@ -65,9 +65,9 @@ const Contacts = ({ filterType }) => {
     setPage(1);
   }, [filterType, selectedTl, selectedAgent, debouncedSearchTerm]);
 
-  const fetchContacts = async () => {
+  const fetchContacts = async (silent = false) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
 
       const isAdmin = user?.role === 'admin' || user?.role === 'superadmin';
       const isAgent = user?.role === 'agent';
@@ -134,9 +134,26 @@ const Contacts = ({ filterType }) => {
   useEffect(() => {
     fetchContacts();
     if (!socket) return;
-    const handler = () => fetchContacts();
+    const handler = () => fetchContacts(true);
     ['contacts_updated', 'batch_uploaded', 'users_updated'].forEach(e => socket.on(e, handler));
-    return () => ['contacts_updated', 'batch_uploaded', 'users_updated'].forEach(e => socket.off(e, handler));
+
+    const onLeadUpdated = (data) => {
+      if (!data) return;
+      const targetId = data.contactId || data.leadId;
+      if (!targetId) return;
+      setContacts(prev => prev.map(c => {
+        if ((c._id && c._id === targetId) || (c.id && c.id === targetId)) {
+          return { ...c, ...data.data, ...data.lead };
+        }
+        return c;
+      }));
+    };
+    socket.on('lead_updated', onLeadUpdated);
+
+    return () => {
+      ['contacts_updated', 'batch_uploaded', 'users_updated'].forEach(e => socket.off(e, handler));
+      socket.off('lead_updated', onLeadUpdated);
+    };
   }, [filterType, socket, location.pathname, selectedTl, selectedAgent, page, debouncedSearchTerm]);
 
   useEffect(() => {

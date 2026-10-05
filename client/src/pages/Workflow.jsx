@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useSocket } from '../contexts/SocketContext';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -30,6 +30,10 @@ const Workflow = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const [data, setData] = useState(null);
+  const dataRef = useRef(data);
+  useEffect(() => {
+    dataRef.current = data;
+  }, [data]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [dispForm, setDispForm] = useState({ disposition: '', remarks: '', appointmentDt: '', leadAmount: '', callBackDt: '', status: '', statusDetails: '', transactionId: '' });
@@ -97,13 +101,34 @@ const Workflow = () => {
 
   useEffect(() => {
     if (!socket) return;
-    const refresh = () => fetchNext();
+    
+    const refresh = (eventData) => {
+      const currentContactId = dataRef.current?.contact?._id || dataRef.current?.contact?.id;
+      // If agent currently has an active contact open, DO NOT interrupt their screen unless their specific contact was disposed
+      if (currentContactId) {
+        if (eventData?.contactId && eventData.contactId === currentContactId) {
+          fetchNext();
+        }
+        return;
+      }
+      // If agent has no contact (idle/waiting), pull next available contact
+      fetchNext();
+    };
+
     socket.on('contacts_updated', refresh);
     socket.on('batch_uploaded', refresh);
     socket.on('contact_disposed', refresh);
     
+    const onDueTaskDisposed = (e) => {
+      const currentContactId = dataRef.current?.contact?._id || dataRef.current?.contact?.id;
+      if (e.detail?.contactId && e.detail.contactId === currentContactId) {
+        fetchNext();
+      }
+    };
+    window.addEventListener('due_task_disposed', onDueTaskDisposed);
+
     const emailStatusHandler = (data) => {
-      if (data.agentId === user._id || data.agentId === user.id) {
+      if (data && (data.agentId === user?._id || data.agentId === user?.id)) {
         if (data.success) {
           addToast('📧 Receipt email sent successfully!', 'success');
         } else {
@@ -118,8 +143,9 @@ const Workflow = () => {
       socket.off('batch_uploaded', refresh);
       socket.off('contact_disposed', refresh);
       socket.off('email_status', emailStatusHandler);
+      window.removeEventListener('due_task_disposed', onDueTaskDisposed);
     };
-  }, [socket]);
+  }, [socket, user]);
 
   const handleDispose = async (e) => {
     e.preventDefault();

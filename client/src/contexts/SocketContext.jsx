@@ -10,8 +10,10 @@ export const SocketProvider = ({ children }) => {
   const [socket, setSocket] = useState(null);
   const { isAuthenticated, user } = useAuth();
 
+  const userId = user?._id || user?.id;
+
   useEffect(() => {
-    if (isAuthenticated && user) {
+    if (isAuthenticated && userId) {
       // Connect to socket when authenticated
       const newSocket = io(import.meta.env.VITE_SERVER_URL || 'http://localhost:3000', {
         auth: {
@@ -33,7 +35,7 @@ export const SocketProvider = ({ children }) => {
       socket.disconnect();
       setSocket(null);
     }
-  }, [isAuthenticated, user]);
+  }, [isAuthenticated, userId]);
 
   return (
     <SocketContext.Provider value={{ socket }}>
