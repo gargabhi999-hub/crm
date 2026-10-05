@@ -175,11 +175,11 @@ const MyLeads = () => {
 
       doRestore();
       requestAnimationFrame(doRestore);
-      setTimeout(doRestore, 30);
-      setTimeout(doRestore, 80);
-      setTimeout(doRestore, 150);
-      setTimeout(doRestore, 300);
-      setTimeout(doRestore, 500);
+      setTimeout(doRestore, 40);
+      // Clean up activeLeadIdRef so future scrolling/syncs NEVER yank the table back to this lead
+      setTimeout(() => {
+        activeLeadIdRef.current = null;
+      }, 100);
     } catch (e) {}
   };
 
@@ -323,17 +323,41 @@ const MyLeads = () => {
         setLeads(prev => {
           if (!prev || prev.length === 0) return incomingLeads;
           const incomingMap = new Map();
+          const incomingPhoneMap = new Map();
           incomingLeads.forEach(l => {
             const key = l._id || l.id || l.contactId;
             if (key) incomingMap.set(key, l);
+            const p = l.fields?.Phone || l.fields?.phone || l.fields?.Mobile || l.phone;
+            const np = p ? String(p).replace(/\D/g, '').slice(-10) : null;
+            if (np) incomingPhoneMap.set(np, l);
           });
           const updated = prev.map(old => {
             const key = old._id || old.id || old.contactId;
-            return incomingMap.has(key) ? { ...old, ...incomingMap.get(key) } : old;
+            const p = old.fields?.Phone || old.fields?.phone || old.fields?.Mobile || old.phone;
+            const np = p ? String(p).replace(/\D/g, '').slice(-10) : null;
+
+            if (incomingMap.has(key)) {
+              return { ...old, ...incomingMap.get(key) };
+            }
+            if (np && incomingPhoneMap.has(np)) {
+              return { ...old, ...incomingPhoneMap.get(np) };
+            }
+            return old;
           });
           incomingLeads.forEach(l => {
             const key = l._id || l.id || l.contactId;
-            if (key && !prev.some(p => (p._id || p.id || p.contactId) === key)) {
+            const p = l.fields?.Phone || l.fields?.phone || l.fields?.Mobile || l.phone;
+            const np = p ? String(p).replace(/\D/g, '').slice(-10) : null;
+            const alreadyExists = prev.some(old => {
+              if ((old._id || old.id || old.contactId) === key) return true;
+              if (np) {
+                const oldP = old.fields?.Phone || old.fields?.phone || old.fields?.Mobile || old.phone;
+                const oldNp = oldP ? String(oldP).replace(/\D/g, '').slice(-10) : null;
+                if (oldNp && oldNp === np) return true;
+              }
+              return false;
+            });
+            if (!alreadyExists) {
               updated.push(l);
             }
           });
@@ -369,12 +393,16 @@ const MyLeads = () => {
 
       if (statsRes.data) setStats(statsRes.data);
 
-      restoreScrollPosition(targetLeadId);
+      if (!silent) {
+        restoreScrollPosition(targetLeadId);
+      }
     } catch (err) {
       console.error('Fetch leads failed', err);
     } finally {
       setLoading(false);
-      restoreScrollPosition(targetLeadId);
+      if (!silent) {
+        restoreScrollPosition(targetLeadId);
+      }
     }
   };
 
@@ -574,19 +602,30 @@ const MyLeads = () => {
       if (!payload) return;
       const targetLeadId = payload.leadId;
       const targetContactId = payload.contactId;
+      const origContactId = payload.originalContactId;
+      const targetPhone = payload.phone ? String(payload.phone).replace(/\D/g, '').slice(-10) : null;
       const updates = payload.data || payload.lead || {};
 
       setLeads(prev => {
         let changed = false;
         const next = prev.map(item => {
+          const itemPhone = item.fields?.Phone || item.fields?.phone || item.fields?.Mobile || item.phone;
+          const itemNormPhone = itemPhone ? String(itemPhone).replace(/\D/g, '').slice(-10) : null;
+
           const matches = (targetLeadId && ((item._id && item._id === targetLeadId) || (item.id && item.id === targetLeadId))) ||
-                          (targetContactId && ((item.contactId && item.contactId === targetContactId) || (item._id && item._id === targetContactId) || (item.id && item.id === targetContactId)));
+                          (targetContactId && ((item.contactId && item.contactId === targetContactId) || (item._id && item._id === targetContactId) || (item.id && item.id === targetContactId))) ||
+                          (origContactId && ((item._id && item._id === origContactId) || (item.id && item.id === origContactId) || (item.contactId && item.contactId === origContactId))) ||
+                          (targetPhone && itemNormPhone && targetPhone === itemNormPhone);
           if (matches) {
             changed = true;
             return {
               ...item,
               ...updates,
+              _id: updates._id || targetContactId || targetLeadId || item._id,
+              id: updates.id || targetContactId || targetLeadId || item.id,
+              contactId: updates.contactId || targetContactId || item.contactId,
               fields: updates.fields ? { ...item.fields, ...updates.fields } : item.fields,
+              leadsCount: (item.leadsCount || 1) + 1,
               lastModified: new Date()
             };
           }
@@ -601,7 +640,7 @@ const MyLeads = () => {
       }).catch(() => {});
     };
 
-    // Real-time Lead Created: prepend if belongs to agent or admin
+    // Real-time Lead Created: update in-place on same row if existing customer; append if new
     const onLeadCreated = (payload) => {
       if (!payload) return;
       const newLead = payload.lead || payload.contact;
@@ -614,8 +653,38 @@ const MyLeads = () => {
 
       setLeads(prev => {
         const id = newLead._id || newLead.id;
-        if (id && prev.some(l => (l._id || l.id) === id)) return prev;
-        return [newLead, ...prev];
+        const phone = newLead.fields?.Phone || newLead.fields?.phone || newLead.fields?.Mobile || newLead.phone;
+        const normPhone = phone ? String(phone).replace(/\D/g, '').slice(-10) : null;
+
+        // Check if customer already exists in table
+        const existsIndex = prev.findIndex(item => {
+          if (id && ((item._id || item.id) === id)) return true;
+          if (normPhone) {
+            const itemPhone = item.fields?.Phone || item.fields?.phone || item.fields?.Mobile || item.phone;
+            const itemNormPhone = itemPhone ? String(itemPhone).replace(/\D/g, '').slice(-10) : null;
+            if (itemNormPhone && itemNormPhone === normPhone) return true;
+          }
+          return false;
+        });
+
+        if (existsIndex !== -1) {
+          // UPDATE IN PLACE on the EXACT SAME Sr. No.!
+          const next = [...prev];
+          const old = next[existsIndex];
+          next[existsIndex] = {
+            ...old,
+            ...newLead,
+            _id: id || old._id,
+            id: id || old.id,
+            contactId: id || old.contactId,
+            leadsCount: (old.leadsCount || 1) + 1,
+            fields: { ...old.fields, ...(newLead.fields || {}) }
+          };
+          return next;
+        }
+
+        // Brand new lead: append to end to preserve Sr. No. of all existing leads
+        return [...prev, newLead];
       });
 
       setTotalCount(prev => prev + 1);
@@ -864,25 +933,39 @@ const MyLeads = () => {
 
   const handleCallActionSubmit = async (data) => {
     const activeId = callActionLead?._id || callActionLead?.id || callActionLead?.contactId;
+    const phone = callActionLead?.fields?.Phone || callActionLead?.fields?.phone || callActionLead?.fields?.Mobile || callActionLead?.phone;
+    const normPhone = phone ? String(phone).replace(/\D/g, '').slice(-10) : null;
+
     saveScrollPosition(activeId);
     try {
       const cid = callActionLead.contactId || callActionLead._id || callActionLead.id;
+
+      const res = await api.post(`/leads/${cid}/clone-and-dispose`, data);
+      const newContactId = res.data?.contactId;
+
       setLeads(prev => prev.map(l => {
+        const lp = l.fields?.Phone || l.fields?.phone || l.fields?.Mobile || l.phone;
+        const lNormPhone = lp ? String(lp).replace(/\D/g, '').slice(-10) : null;
+
         const isMatch = (l._id && (l._id === activeId || l._id === cid)) ||
                         (l.id && (l.id === activeId || l.id === cid)) ||
-                        (l.contactId && (l.contactId === cid || l.contactId === activeId));
+                        (l.contactId && (l.contactId === cid || l.contactId === activeId)) ||
+                        (normPhone && lNormPhone && normPhone === lNormPhone);
         if (isMatch) {
           return {
             ...l,
+            _id: newContactId || l._id,
+            id: newContactId || l.id,
+            contactId: newContactId || l.contactId,
             status: data.status || l.status,
             remarks: data.remarks !== undefined ? data.remarks : l.remarks,
-            leadAmount: data.leadAmount !== undefined ? parseFloat(data.leadAmount) : l.leadAmount
+            leadAmount: data.leadAmount !== undefined ? parseFloat(data.leadAmount) : l.leadAmount,
+            transactionId: data.transactionId || l.transactionId,
+            leadsCount: (l.leadsCount || 1) + 1
           };
         }
         return l;
       }));
-
-      const res = await api.post(`/leads/${cid}/clone-and-dispose`, data);
       
       if (res.data?.success) {
         setCallActionLead(null);

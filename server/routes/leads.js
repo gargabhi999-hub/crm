@@ -145,7 +145,7 @@ router.get('/my-leads', verify, authorize(['superadmin', 'agent', 'tl', 'admin']
 
       if (pageNum && limitNum) {
         const pagedParams = [...contactParams, limitNum, skip];
-        const selectSql = `SELECT _id as id FROM contacts WHERE ${contactBaseClause} AND (remarks ILIKE $${searchParamIdx} OR agent_name ILIKE $${searchParamIdx} OR fields::text ILIKE $${searchParamIdx}) ORDER BY last_modified DESC NULLS LAST LIMIT $${contactParams.length + 1} OFFSET $${contactParams.length + 2}`;
+        const selectSql = `SELECT _id as id FROM contacts WHERE ${contactBaseClause} AND (remarks ILIKE $${searchParamIdx} OR agent_name ILIKE $${searchParamIdx} OR fields::text ILIKE $${searchParamIdx}) ORDER BY created_at ASC, _id ASC LIMIT $${contactParams.length + 1} OFFSET $${contactParams.length + 2}`;
         const rows = await prisma.$queryRawUnsafe(selectSql, ...pagedParams);
         const pagedIds = rows.map(r => r.id);
         if (pagedIds.length > 0) {
@@ -155,7 +155,7 @@ router.get('/my-leads', verify, authorize(['superadmin', 'agent', 'tl', 'admin']
         }
       } else {
         const rows = await prisma.$queryRawUnsafe(
-          `SELECT _id as id FROM contacts WHERE ${contactBaseClause} AND (remarks ILIKE $${searchParamIdx} OR agent_name ILIKE $${searchParamIdx} OR fields::text ILIKE $${searchParamIdx}) ORDER BY last_modified DESC NULLS LAST LIMIT 200`,
+          `SELECT _id as id FROM contacts WHERE ${contactBaseClause} AND (remarks ILIKE $${searchParamIdx} OR agent_name ILIKE $${searchParamIdx} OR fields::text ILIKE $${searchParamIdx}) ORDER BY created_at ASC, _id ASC LIMIT 200`,
           ...contactParams
         );
         const pagedIds = rows.map(r => r.id);
@@ -172,7 +172,7 @@ router.get('/my-leads', verify, authorize(['superadmin', 'agent', 'tl', 'admin']
           prisma.contact.count({ where: contactWhere }),
           prisma.contact.findMany({
             where: contactWhere,
-            orderBy: { lastModified: 'desc' },
+            orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
             skip,
             take: limitNum
           })
@@ -180,7 +180,7 @@ router.get('/my-leads', verify, authorize(['superadmin', 'agent', 'tl', 'admin']
       } else {
         contacts = await prisma.contact.findMany({
           where: contactWhere,
-          orderBy: { lastModified: 'desc' },
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
           take: 200
         });
         total = contacts.length;
@@ -216,9 +216,9 @@ router.get('/my-leads', verify, authorize(['superadmin', 'agent', 'tl', 'admin']
       if (normPhones.length > 0) {
         try {
           const dupes = await prisma.$queryRawUnsafe(`
-            SELECT right(regexp_replace(fields->>'Phone', '\\D', '', 'g'), 10) as phone, count(*)::int as count
+            SELECT right(regexp_replace(COALESCE(fields->>'Phone', fields->>'phone', fields->>'Mobile', ''), '\\D', '', 'g'), 10) as phone, count(*)::int as count
             FROM contacts
-            WHERE disposition = 'Lead' AND is_deleted = false AND right(regexp_replace(fields->>'Phone', '\\D', '', 'g'), 10) = ANY($1)
+            WHERE (disposition = 'Lead' OR disposition = 'Lead_History') AND is_deleted = false AND right(regexp_replace(COALESCE(fields->>'Phone', fields->>'phone', fields->>'Mobile', ''), '\\D', '', 'g'), 10) = ANY($1)
             GROUP BY 1
           `, normPhones);
           dupes.forEach(d => {
@@ -1114,7 +1114,8 @@ router.post('/:id/clone-and-dispose', verify, authorize(['superadmin', 'agent', 
       assignedTo: req.user._id || req.user.id, adminId: contact.adminId,
       disposition, status: finalStatus, remarks: formattedRemarks,
       disposedBy: req.user._id || req.user.id, disposedAt: new Date(),
-      queueOrder: 999999
+      queueOrder: 999999,
+      createdAt: contact.createdAt || new Date()
     };
 
     if (disposition === 'Lead') {
@@ -1128,6 +1129,15 @@ router.post('/:id/clone-and-dispose', verify, authorize(['superadmin', 'agent', 
 
     const newContact = await prisma.contact.create({ data: newContactData });
     const newContactId = newContact.id;
+
+    // Mark previous contact as historical conversation so it does not duplicate in active My Leads view,
+    // while remaining fully visible in /leads/history/:phone
+    if (contact && contact.id) {
+      await prisma.contact.update({
+        where: { id: contact.id },
+        data: { disposition: 'Lead_History' }
+      }).catch(e => console.warn('Could not update previous contact disposition:', e.message));
+    }
 
     if (disposition === 'Lead') {
       await prisma.lead.create({
@@ -1172,14 +1182,21 @@ router.post('/:id/clone-and-dispose', verify, authorize(['superadmin', 'agent', 
       if (phoneNum) await consolidateCallbacks(phoneNum);
     }
 
+    const contactPhone = contact.fields?.Phone || contact.fields?.phone || contact.fields?.Mobile;
     broadcast('lead_updated', {
       leadId: newContactId,
       contactId: newContactId,
+      originalContactId: contact.id,
+      phone: contactPhone,
       data: {
+        _id: newContactId,
+        id: newContactId,
+        contactId: newContactId,
         status: finalStatus,
         disposition,
         remarks: newContact.remarks,
-        leadAmount: newContact.leadAmount
+        leadAmount: newContact.leadAmount,
+        transactionId: transactionId || null
       },
       agentId: req.user._id || req.user.id,
       agentName: req.user.name
@@ -1187,6 +1204,8 @@ router.post('/:id/clone-and-dispose', verify, authorize(['superadmin', 'agent', 
     broadcast('contact_disposed', {
       contactId: newContactId,
       leadId: newContactId,
+      originalContactId: contact.id,
+      phone: contactPhone,
       disposition,
       status: finalStatus,
       agentName: req.user.name
