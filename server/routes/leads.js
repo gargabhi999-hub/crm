@@ -929,82 +929,141 @@ router.get('/history/:phone', verify, authorize(['superadmin', 'agent', 'tl', 'a
     const phoneParam = req.params.phone;
     if (!phoneParam) return res.status(400).json({ error: 'Phone parameter is required' });
 
-    let leadWhere = {};
-    let contactWhere = { isDeleted: false, disposition: 'Lead' };
-    if (req.user.role === 'agent') {
-      leadWhere.assignedTo = req.user._id || req.user.id;
-      contactWhere.assignedTo = req.user._id || req.user.id;
-    } else if (req.user.role === 'tl') {
-      const agents = await prisma.user.findMany({ where: { tlId: req.user._id || req.user.id } });
-      const agentIds = agents.map(a => a.id);
-      leadWhere.assignedTo = { in: agentIds };
-      contactWhere.assignedTo = { in: agentIds };
-    } else if (req.user.role === 'admin') {
-      leadWhere.adminId = req.user._id || req.user.id;
-      contactWhere.adminId = req.user._id || req.user.id;
-    }
-
     const cleanDigits = String(phoneParam).replace(/\D/g, '');
     const searchPhone = cleanDigits.length >= 10 ? cleanDigits.slice(-10) : cleanDigits;
+    if (!searchPhone) return res.json([]);
 
-    // Filter using fields JSON or query
-    const [leads, contactLeads] = await Promise.all([
-      prisma.lead.findMany({
-        where: {
-          ...leadWhere,
-          OR: [
-            { fields: { path: ['Phone'], string_contains: searchPhone } },
-            { fields: { path: ['phone'], string_contains: searchPhone } },
-            { fields: { path: ['Mobile'], string_contains: searchPhone } }
-          ]
-        }
+    const adminId = (req.user.role !== 'superadmin') ? (req.user.adminId || req.user._id || req.user.id) : null;
+    const userId = req.user._id || req.user.id;
+
+    let leadQuery = `
+      SELECT 
+        l._id as id,
+        l._id as "_id",
+        l.contact_id as "contactId",
+        l.fields,
+        l.batch_id as "batchId",
+        l.assigned_to as "assignedTo",
+        l.agent_name as "agentName",
+        l.admin_id as "adminId",
+        l.status,
+        l.remarks,
+        l.lead_amount as "leadAmount",
+        l.transaction_id as "transactionId",
+        l.utr_charity as "utrCharity",
+        l.charity_amount as "charityAmount",
+        l.is_charity_confirmed as "isCharityConfirmed",
+        l.conversion_date as "conversionDate",
+        l.created_at as "createdAt"
+      FROM leads l
+      WHERE (
+        right(regexp_replace(COALESCE(l.fields->>'Phone', l.fields->>'phone', l.fields->>'Mobile', l.fields->>'mobile', ''), '\\D', '', 'g'), 10) = $1
+      )
+    `;
+
+    let contactQuery = `
+      SELECT 
+        c._id as id,
+        c._id as "_id",
+        c._id as "contactId",
+        c.fields,
+        c.batch_id as "batchId",
+        c.assigned_to as "assignedTo",
+        c.agent_name as "agentName",
+        c.admin_id as "adminId",
+        c.status,
+        c.disposition,
+        c.remarks,
+        c.lead_amount as "leadAmount",
+        c.transaction_id as "transactionId",
+        c.utr_charity as "utrCharity",
+        c.charity_amount as "charityAmount",
+        c.is_charity_confirmed as "isCharityConfirmed",
+        c.conversion_date as "conversionDate",
+        c.created_at as "createdAt",
+        c.call_back_dt as "callBackDt"
+      FROM contacts c
+      WHERE c.is_deleted = false 
+        AND (
+          right(regexp_replace(COALESCE(c.fields->>'Phone', c.fields->>'phone', c.fields->>'Mobile', c.fields->>'mobile', ''), '\\D', '', 'g'), 10) = $1
+        )
+    `;
+
+    const params = [searchPhone];
+    if (adminId) {
+      params.push(adminId);
+      params.push(userId);
+      leadQuery += ` AND (l.admin_id = $2 OR l.assigned_to = $3)`;
+      contactQuery += ` AND (c.admin_id = $2 OR c.assigned_to = $3)`;
+    }
+
+    leadQuery += ` ORDER BY l.created_at DESC`;
+    contactQuery += ` ORDER BY c.created_at DESC`;
+
+    const [rawLeads, rawContacts] = await Promise.all([
+      prisma.$queryRawUnsafe(leadQuery, ...params).catch(err => {
+        console.error('Raw leads history query error:', err.message);
+        return [];
       }),
-      prisma.contact.findMany({
-        where: {
-          ...contactWhere,
-          OR: [
-            { fields: { path: ['Phone'], string_contains: searchPhone } },
-            { fields: { path: ['phone'], string_contains: searchPhone } },
-            { fields: { path: ['Mobile'], string_contains: searchPhone } }
-          ]
-        }
+      prisma.$queryRawUnsafe(contactQuery, ...params).catch(err => {
+        console.error('Raw contacts history query error:', err.message);
+        return [];
       })
     ]);
 
-    const userMapRaw = await resolveUserNamesForRecords([...leads, ...contactLeads]);
+    const allRecords = [...rawLeads, ...rawContacts];
+    const userMapRaw = await resolveUserNamesForRecords(allRecords);
     const userMap = {};
     Object.keys(userMapRaw).forEach(k => {
       userMap[k] = userMapRaw[k].name;
     });
-    const leadContactIds = new Set(leads.map(l => l.contactId).filter(Boolean));
-    const uniqueContactLeads = contactLeads.filter(c => !leadContactIds.has(c.id));
+
+    const leadContactIds = new Set(rawLeads.map(l => l.contactId).filter(Boolean));
+    const uniqueContactLeads = rawContacts.filter(c => !leadContactIds.has(c.id));
 
     const mappedContactLeads = uniqueContactLeads.map(c => ({
-      _id: c.id, contactId: c.id, fields: c.fields, batchId: c.batchId,
-      assignedTo: c.assignedTo, agentName: c.assignedTo ? userMap[c.assignedTo] || 'Unassigned' : 'Unassigned',
-      leadAmount: c.leadAmount || 0, status: c.status || 'Pending',
+      _id: c.id,
+      id: c.id,
+      contactId: c.id,
+      fields: c.fields,
+      batchId: c.batchId,
+      assignedTo: c.assignedTo,
+      agentName: c.assignedTo ? (userMap[c.assignedTo] || c.agentName || 'Unassigned') : (c.agentName || 'Unassigned'),
+      leadAmount: c.leadAmount || 0,
+      status: c.status || 'Pending',
       remarks: c.remarks || 'Imported Lead',
-      createdAt: c.createdAt || c.disposedAt || new Date(),
-      lastModified: c.lastModified || new Date()
+      createdAt: c.createdAt || new Date(),
+      conversionDate: c.conversionDate,
+      transactionId: c.transactionId,
+      utrCharity: c.utrCharity,
+      charityAmount: c.charityAmount,
+      isCharityConfirmed: c.isCharityConfirmed,
+      callBackDt: c.callBackDt
     }));
 
-    const combined = [...leads.map(l => ({ ...l, _id: l.id })), ...mappedContactLeads];
+    const mappedLeads = rawLeads.map(l => ({
+      _id: l.id,
+      id: l.id,
+      contactId: l.contactId,
+      fields: l.fields,
+      batchId: l.batchId,
+      assignedTo: l.assignedTo,
+      agentName: l.assignedTo ? (userMap[l.assignedTo] || l.agentName || 'Unassigned') : (l.agentName || 'Unassigned'),
+      leadAmount: l.leadAmount || 0,
+      status: l.status || 'Pending',
+      remarks: l.remarks || 'Lead',
+      createdAt: l.createdAt || new Date(),
+      conversionDate: l.conversionDate,
+      transactionId: l.transactionId,
+      utrCharity: l.utrCharity,
+      charityAmount: l.charityAmount,
+      isCharityConfirmed: l.isCharityConfirmed
+    }));
 
-    const normalize = (phone) => {
-      if (!phone) return 'N/A';
-      const clean = String(phone).replace(/\D/g, '');
-      return clean.length >= 10 ? clean.slice(-10) : clean || 'N/A';
-    };
+    const combined = [...mappedLeads, ...mappedContactLeads];
+    combined.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
-    const targetNormPhone = normalize(phoneParam);
-
-    const history = combined.filter(lead => {
-      const fields = lead.fields || {};
-      const rawPhone = fields.Phone || fields.phone || fields.Mobile || 'N/A';
-      return normalize(rawPhone) === targetNormPhone;
-    }).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-
-    res.json(history);
+    res.json(combined);
   } catch (err) {
     console.error('Fetch history failed:', err);
     res.status(500).json({ error: 'Server error' });
