@@ -43,10 +43,27 @@
   flex-wrap: wrap;
 }
 
+.excel-sheet-toolbar-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .excel-sheet-toolbar-left {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.excel-pagination-counter {
+  font-size: 0.73rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .excel-tab-badge {
@@ -1063,7 +1080,7 @@
   display: none !important;
 }
 
-/* Responsive Media Queries for Single-Line Alignment */
+/* Responsive Media Queries for Single-Line Alignment & Seamless Mobile View */
 @media (max-width: 768px) {
   .leads-filter-bar {
     padding: 8px 10px;
@@ -1108,7 +1125,101 @@
     padding: 0 6px;
   }
 
-  /* Unfreeze Contact / Name column on small screens during horizontal scroll */
+  /* Sheet Toolbar Mobile Optimization */
+  .excel-sheet-toolbar {
+    padding: 6px 8px !important;
+    gap: 6px !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+  }
+
+  .excel-sheet-toolbar-header {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    width: 100% !important;
+    gap: 6px !important;
+  }
+
+  .excel-tab-badge {
+    padding: 4px 8px !important;
+    font-size: 0.73rem !important;
+    border-radius: 6px 6px 0 0 !important;
+  }
+
+  .excel-toolbar-stats {
+    gap: 6px !important;
+    font-size: 0.68rem !important;
+  }
+
+  .excel-stat-pill {
+    padding: 2px 6px !important;
+    font-size: 0.67rem !important;
+    border-radius: 999px !important;
+  }
+
+  /* Pagination Bar Mobile Formatting */
+  .excel-pagination-toolbar {
+    width: 100% !important;
+    box-sizing: border-box !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    padding: 3px 6px !important;
+    gap: 4px !important;
+    border-radius: 10px !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    scrollbar-width: none !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+
+  .excel-pagination-toolbar::-webkit-scrollbar {
+    display: none !important;
+  }
+
+  .excel-pagination-counter {
+    font-size: 0.72rem !important;
+    flex-shrink: 0 !important;
+    white-space: nowrap !important;
+  }
+
+  .excel-page-selector {
+    font-size: 0.72rem !important;
+    gap: 3px !important;
+    flex-shrink: 0 !important;
+    white-space: nowrap !important;
+  }
+
+  .excel-page-select {
+    height: 25px !important;
+    font-size: 0.72rem !important;
+    padding: 1px 4px !important;
+    max-width: 96px !important;
+    flex-shrink: 0 !important;
+  }
+
+  .excel-page-btn {
+    padding: 2px 6px !important;
+    height: 25px !important;
+    min-width: 24px !important;
+    font-size: 0.72rem !important;
+    flex-shrink: 0 !important;
+  }
+
+  .excel-pagination-divider {
+    height: 14px !important;
+    margin: 0 2px !important;
+    flex-shrink: 0 !important;
+  }
+
+  .excel-page-size-selector {
+    flex-shrink: 0 !important;
+  }
+
+  /* Unfreeze sticky columns on small screens so horizontal scroll never overlaps or clips */
+  .sticky-col-index,
+  .excel-grid-table th.sticky-col-index,
   .sticky-col-name,
   .excel-grid-table th.sticky-col-name {
     position: static !important;
@@ -1116,6 +1227,41 @@
     z-index: auto !important;
     box-shadow: none !important;
     border-right: 1px solid var(--border) !important;
+  }
+
+  .sticky-col-index {
+    width: 36px !important;
+    min-width: 36px !important;
+    max-width: 36px !important;
+    padding: 6px 4px !important;
+  }
+
+  .sticky-col-name {
+    min-width: 140px !important;
+    max-width: 180px !important;
+  }
+
+  .excel-grid-table th {
+    padding: 8px 8px !important;
+    font-size: 0.66rem !important;
+  }
+
+  .excel-grid-table td {
+    padding: 6px 8px !important;
+    font-size: 0.74rem !important;
+  }
+
+  .excel-date-cell {
+    min-width: 95px !important;
+    font-size: 0.72rem !important;
+  }
+
+  .excel-date-day {
+    font-size: 0.72rem !important;
+  }
+
+  .excel-date-time {
+    font-size: 0.64rem !important;
   }
 }
 
@@ -1136,6 +1282,19 @@
     width: 34px;
     height: 34px;
     min-width: 34px;
+  }
+
+  .excel-page-select {
+    max-width: 88px !important;
+    font-size: 0.68rem !important;
+  }
+
+  .excel-pagination-counter {
+    font-size: 0.68rem !important;
+  }
+
+  .excel-page-selector span {
+    font-size: 0.68rem !important;
   }
 
   .excel-actions-header,

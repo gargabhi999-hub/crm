@@ -1351,26 +1351,42 @@ const MyLeads = () => {
         >
           {/* Top Sheet Toolbar with Integrated Auto-scroll Status & Stats */}
           <div className="excel-sheet-toolbar">
-            <div className="excel-sheet-toolbar-left">
-              <div 
-                className="excel-tab-badge"
-                onClick={() => sheetRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-                style={{ cursor: 'pointer' }}
-                title="Click to settle sheet on screen"
-              >
-                <FileSpreadsheet className="excel-tab-badge-icon" />
-                <span>Leads Sheet</span>
+            <div className="excel-sheet-toolbar-header">
+              <div className="excel-sheet-toolbar-left">
+                <div 
+                  className="excel-tab-badge"
+                  onClick={() => sheetRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                  style={{ cursor: 'pointer' }}
+                  title="Click to settle sheet on screen"
+                >
+                  <FileSpreadsheet className="excel-tab-badge-icon" />
+                  <span>Leads Sheet</span>
+                </div>
+              </div>
+
+              <div className="excel-toolbar-stats">
+                <span className="excel-stat-pill">
+                  Rows: <strong>{filtered.length}</strong>
+                </span>
+                <span className="excel-stat-pill">
+                  Total: <strong>₹{filtered.reduce((sum, l) => sum + (l.isCharityConfirmed && l.charityAmount ? l.charityAmount : (l.leadAmount || 0)), 0).toLocaleString()}</strong>
+                </span>
+                {selectedIds.length > 0 && (
+                  <span className="excel-stat-pill" style={{ color: 'var(--primary)', borderColor: 'var(--primary-glow)' }}>
+                    Sel: <strong>{selectedIds.length}</strong>
+                  </span>
+                )}
               </div>
             </div>
 
             {/* Auto-Scroll & Interactive Page Selector / Series Jump */}
             <div className="excel-pagination-toolbar">
-              <span style={{ fontSize: '0.73rem', fontWeight: 700, color: 'var(--text-secondary)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                <span>Auto-Scroll:</span>
-                <strong style={{ color: 'var(--primary)' }}>
+              <span className="excel-pagination-counter">
+                <span className="hide-on-mobile">Auto-Scroll: </span>
+                <strong style={{ color: 'var(--primary)', whiteSpace: 'nowrap' }}>
                   {filtered.length} of {totalCount || (totalPages * limit) || filtered.length}
                 </strong>
-                <span style={{ opacity: 0.6 }}>leads</span>
+                <span className="hide-on-mobile" style={{ opacity: 0.6 }}> leads</span>
               </span>
 
               <div className="excel-pagination-divider" />
@@ -1388,7 +1404,7 @@ const MyLeads = () => {
 
               {/* Page / Series Dropdown Selector */}
               <div className="excel-page-selector">
-                <span>Page</span>
+                <span className="hide-on-mobile">Page</span>
                 <select
                   className="excel-page-select"
                   value={page}
@@ -1401,12 +1417,14 @@ const MyLeads = () => {
                     const endNum = totalCount ? Math.min(p * limit, totalCount) : (p * limit);
                     return (
                       <option key={p} value={p}>
-                        {p} {totalCount > limit ? `(${startNum}–${endNum})` : ''}
+                        {p} ({startNum}–{endNum})
                       </option>
                     );
                   })}
                 </select>
-                <span>of <strong>{Math.max(1, totalPages)}</strong></span>
+                <span style={{ whiteSpace: 'nowrap' }}>
+                  of <strong>{Math.max(1, totalPages)}</strong>
+                </span>
               </div>
 
               {/* Next Page Button */}
@@ -1431,25 +1449,11 @@ const MyLeads = () => {
                   onChange={(e) => handleLimitChange(Number(e.target.value))}
                   title="Leads per page criteria"
                 >
-                  <option value={50}>50 / page</option>
-                  <option value={100}>100 / page</option>
-                  <option value={200}>200 / page</option>
+                  <option value={50}>50 / p</option>
+                  <option value={100}>100 / p</option>
+                  <option value={200}>200 / p</option>
                 </select>
               </div>
-            </div>
-
-            <div className="excel-toolbar-stats">
-              <span className="excel-stat-pill">
-                Rows: <strong>{filtered.length}</strong>
-              </span>
-              <span className="excel-stat-pill">
-                Total Value: <strong>₹{filtered.reduce((sum, l) => sum + (l.isCharityConfirmed && l.charityAmount ? l.charityAmount : (l.leadAmount || 0)), 0).toLocaleString()}</strong>
-              </span>
-              {selectedIds.length > 0 && (
-                <span className="excel-stat-pill" style={{ color: 'var(--primary)', borderColor: 'var(--primary-glow)' }}>
-                  Selected: <strong>{selectedIds.length}</strong>
-                </span>
-              )}
             </div>
           </div>
 
