@@ -10,6 +10,7 @@ import ReceiptUploadModal from '../components/ReceiptUploadModal';
 import CharityConfirmModal from '../components/CharityConfirmModal';
 import WhatsAppIcon from '../components/WhatsAppIcon';
 import CreateLeadModal from '../components/CreateLeadModal';
+import LeadDetailModal from '../components/LeadDetailModal';
 import './SuperAdminDashboard.css';
 import './MyLeads.css';
 
@@ -47,6 +48,20 @@ const formatSafeDate = (val) => {
   }
 };
 
+const formatLeadDate = (val) => {
+  if (!val) return { date: 'N/A', time: '' };
+  try {
+    const d = new Date(val);
+    if (isNaN(d.getTime())) return { date: 'N/A', time: '' };
+    return {
+      date: d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }),
+      time: d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true })
+    };
+  } catch (e) {
+    return { date: 'N/A', time: '' };
+  }
+};
+
 const formatSafeDateTime = (val) => {
   if (!val) return '';
   try {
@@ -79,7 +94,8 @@ const MyLeads = () => {
   
   // Pagination & Auto-Scroll
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(50);
+  const [limit, setLimit] = useState(100);
+  const [pageOffset, setPageOffset] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -112,6 +128,28 @@ const MyLeads = () => {
 
   // Call Action Modal State
   const [callActionLead, setCallActionLead] = useState(null);
+
+  // Complete Lead Detail & Customer 360 Pop-up Modal State
+  const [detailModalLead, setDetailModalLead] = useState(null);
+  const [detailModalRowNumber, setDetailModalRowNumber] = useState(null);
+
+  const openLeadDetailModal = (lead, rowNumber) => {
+    if (!lead) return;
+    const leadId = lead._id || lead.id || lead.contactId;
+    saveScrollPosition(leadId);
+    setDetailModalLead(lead);
+    setDetailModalRowNumber(rowNumber);
+  };
+
+  // Keep detailModalLead in sync with realtime/optimistic updates to leads state
+  useEffect(() => {
+    if (!detailModalLead) return;
+    const currentId = detailModalLead._id || detailModalLead.id || detailModalLead.contactId;
+    const matched = leads.find(l => (l._id || l.id || l.contactId) === currentId);
+    if (matched) {
+      setDetailModalLead(matched);
+    }
+  }, [leads]);
 
   // History State
   const [historyContact, setHistoryContact] = useState(null);
@@ -292,10 +330,13 @@ const MyLeads = () => {
     }, 0);
   };
 
-  const fetchData = async (silent = false, targetLeadId = null) => {
+  const fetchData = async (silent = false, targetLeadId = null, targetPage = null, overrideLimit = null) => {
     try {
       saveScrollPosition(targetLeadId);
-      if (!silent && (!leadsRef.current || leadsRef.current.length === 0)) {
+      const activeLimit = overrideLimit || limit;
+      const activePage = targetPage !== null && targetPage !== undefined ? targetPage : (silent ? pageRef.current : 1);
+
+      if (!silent && (!leadsRef.current || leadsRef.current.length === 0 || targetPage !== null)) {
         setLoading(true);
       }
       const params = new URLSearchParams();
@@ -305,10 +346,8 @@ const MyLeads = () => {
       if (convertedStartDate) params.append('convertedFrom', convertedStartDate);
       if (convertedEndDate) params.append('convertedTo', convertedEndDate);
 
-      const currentCount = leadsRef.current ? leadsRef.current.length : 0;
-      const fetchLimit = silent ? Math.max(limit, currentCount || limit) : limit;
-      params.append('page', 1);
-      params.append('limit', fetchLimit);
+      params.append('page', activePage);
+      params.append('limit', activeLimit);
 
       const [leadsRes, statsRes] = await Promise.all([
         api.get(`/leads/my-leads?${params.toString()}`),
@@ -373,17 +412,18 @@ const MyLeads = () => {
       setTotalCount(totalL);
 
       if (!silent) {
-        setPage(1);
-        pageRef.current = 1;
-        const moreAvailable = totalP > 1 && incomingLeads.length < totalL;
+        setPage(activePage);
+        pageRef.current = activePage;
+        setPageOffset((activePage - 1) * activeLimit);
+        const moreAvailable = activePage < totalP;
         setHasMore(moreAvailable);
         hasMoreRef.current = moreAvailable;
-        if (tableContainerRef.current) {
+        if (targetPage !== null && tableContainerRef.current) {
           tableContainerRef.current.scrollTop = 0;
         }
       } else {
-        const covered = Math.max(incomingLeads.length, currentCount);
-        const currentPagesCovered = Math.ceil(covered / limit);
+        const covered = Math.max(incomingLeads.length, leadsRef.current?.length || 0);
+        const currentPagesCovered = Math.ceil(covered / activeLimit);
         setPage(currentPagesCovered || 1);
         pageRef.current = currentPagesCovered || 1;
         const moreAvailable = covered < totalL;
@@ -404,6 +444,29 @@ const MyLeads = () => {
         restoreScrollPosition(targetLeadId);
       }
     }
+  };
+
+  const goToPage = async (targetPage) => {
+    const maxP = Math.max(1, totalPages);
+    if (targetPage < 1 || targetPage > maxP || loading) return;
+    setPage(targetPage);
+    pageRef.current = targetPage;
+    setPageOffset((targetPage - 1) * limit);
+    if (tableContainerRef.current) {
+      tableContainerRef.current.scrollTop = 0;
+    }
+    await fetchData(false, null, targetPage);
+  };
+
+  const handleLimitChange = async (newLimit) => {
+    setLimit(newLimit);
+    setPage(1);
+    pageRef.current = 1;
+    setPageOffset(0);
+    if (tableContainerRef.current) {
+      tableContainerRef.current.scrollTop = 0;
+    }
+    await fetchData(false, null, 1, newLimit);
   };
 
   const loadNextBatch = async () => {
@@ -591,7 +654,10 @@ const MyLeads = () => {
   };
 
   useEffect(() => {
-    fetchData();
+    setPage(1);
+    pageRef.current = 1;
+    setPageOffset(0);
+    fetchData(false, null, 1);
   }, [limit, searchTerm, sourceFilter, statusFilter, convertedStartDate, convertedEndDate]);
 
   useEffect(() => {
@@ -1297,7 +1363,7 @@ const MyLeads = () => {
               </div>
             </div>
 
-            {/* Auto-Scroll & Batch Indicator */}
+            {/* Auto-Scroll & Interactive Page Selector / Series Jump */}
             <div className="excel-pagination-toolbar">
               <span style={{ fontSize: '0.73rem', fontWeight: 700, color: 'var(--text-secondary)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                 <span>Auto-Scroll:</span>
@@ -1309,9 +1375,67 @@ const MyLeads = () => {
 
               <div className="excel-pagination-divider" />
 
-              <span style={{ fontSize: '0.73rem', color: 'var(--text-muted)', fontWeight: 600 }}>
-                Page <strong>{page}</strong> of <strong>{totalPages}</strong>
-              </span>
+              {/* Prev Page Button */}
+              <button
+                type="button"
+                className="excel-page-btn"
+                disabled={page <= 1 || loading}
+                onClick={() => goToPage(page - 1)}
+                title="Previous Series / Page"
+              >
+                <ChevronLeft size={13} />
+              </button>
+
+              {/* Page / Series Dropdown Selector */}
+              <div className="excel-page-selector">
+                <span>Page</span>
+                <select
+                  className="excel-page-select"
+                  value={page}
+                  disabled={loading}
+                  onChange={(e) => goToPage(Number(e.target.value))}
+                  title="Choose page / jump to series"
+                >
+                  {Array.from({ length: Math.max(1, totalPages) }, (_, i) => i + 1).map(p => {
+                    const startNum = ((p - 1) * limit) + 1;
+                    const endNum = totalCount ? Math.min(p * limit, totalCount) : (p * limit);
+                    return (
+                      <option key={p} value={p}>
+                        {p} {totalCount > limit ? `(${startNum}–${endNum})` : ''}
+                      </option>
+                    );
+                  })}
+                </select>
+                <span>of <strong>{Math.max(1, totalPages)}</strong></span>
+              </div>
+
+              {/* Next Page Button */}
+              <button
+                type="button"
+                className="excel-page-btn"
+                disabled={page >= totalPages || loading}
+                onClick={() => goToPage(page + 1)}
+                title="Next Series / Page"
+              >
+                <ChevronRight size={13} />
+              </button>
+
+              <div className="excel-pagination-divider" />
+
+              {/* Page Limit Selector (100 leads per page criteria) */}
+              <div className="excel-page-size-selector">
+                <select
+                  className="excel-page-select"
+                  value={limit}
+                  disabled={loading}
+                  onChange={(e) => handleLimitChange(Number(e.target.value))}
+                  title="Leads per page criteria"
+                >
+                  <option value={50}>50 / page</option>
+                  <option value={100}>100 / page</option>
+                  <option value={200}>200 / page</option>
+                </select>
+              </div>
             </div>
 
             <div className="excel-toolbar-stats">
@@ -1357,6 +1481,7 @@ const MyLeads = () => {
                   <th>Status</th>
                   <th style={{ textAlign: 'right' }}>Amount</th>
                   <th>Charity / UTR</th>
+                  <th>Created Date</th>
                   <th>Remarks</th>
                   <th className="excel-actions-header" style={{ textAlign: 'center' }}>Actions</th>
                 </tr>
@@ -1369,7 +1494,7 @@ const MyLeads = () => {
                   const phone = fields.Phone || fields.phone || fields.Mobile || lead.phone || 'N/A';
                   const leadId = lead._id || lead.id;
                   const isSelected = selectedIds.includes(leadId);
-                  const rowNumber = idx + 1;
+                  const rowNumber = pageOffset + idx + 1;
 
                   const isNegative = lead.status === 'Not Interested' || lead.status === 'DNC/DND';
                   const isConverted = lead.status === 'Converted';
@@ -1402,13 +1527,23 @@ const MyLeads = () => {
                               style={{ cursor: 'pointer', accentColor: 'var(--primary)', width: 14, height: 14 }}
                             />
                           ) : null}
-                          <span style={{ fontSize: '0.7rem', opacity: 0.8 }}>{rowNumber}</span>
+                          <span 
+                            style={{ fontSize: '0.7rem', opacity: 0.9, cursor: 'pointer', fontWeight: 800 }}
+                            onClick={() => openLeadDetailModal(lead, rowNumber)}
+                            title={`Click to open details for #${rowNumber}`}
+                          >
+                            {rowNumber}
+                          </span>
                         </div>
                       </td>
 
                       {/* Contact / Name (Sticky Left) */}
                       <td className="sticky-col-name">
-                        <div className="excel-cell-name-box">
+                        <div 
+                          className="excel-cell-name-box clickable"
+                          onClick={() => openLeadDetailModal(lead, rowNumber)}
+                          title={`Click to view complete details, Customer 360 & history for ${name} (#${rowNumber})`}
+                        >
                           <div 
                             className="excel-avatar-icon"
                             style={{
@@ -1522,6 +1657,23 @@ const MyLeads = () => {
                         </div>
                       </td>
 
+                      {/* Created Date */}
+                      <td className="excel-date-cell">
+                        <div 
+                          className="excel-date-wrapper"
+                          title={lead.createdAt ? new Date(lead.createdAt).toLocaleString() : 'N/A'}
+                        >
+                          <span className="excel-date-day">
+                            {lead.createdAt ? formatLeadDate(lead.createdAt).date : 'N/A'}
+                          </span>
+                          {lead.createdAt && (
+                            <span className="excel-date-time">
+                              {formatLeadDate(lead.createdAt).time}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+
                       {/* Remarks (Click to edit) */}
                       <td>
                         <div 
@@ -1590,22 +1742,22 @@ const MyLeads = () => {
                   );
                 })}
 
-                {/* Loading row when fetching next batch of 50 leads */}
+                {/* Loading row when fetching next batch */}
                 {loadingMore && (
                   <tr className="excel-loading-row">
-                    <td colSpan="8" style={{ textAlign: 'center', padding: '16px', background: 'var(--bg-surface-2)' }}>
+                    <td colSpan="9" style={{ textAlign: 'center', padding: '16px', background: 'var(--bg-surface-2)' }}>
                       <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: '0.78rem', fontWeight: 700, color: 'var(--primary)' }}>
                         <RotateCw className="animate-spin" size={16} />
-                        <span>Loading next 50 leads...</span>
+                        <span>Loading next {limit} leads...</span>
                       </div>
                     </td>
                   </tr>
                 )}
 
                 {/* End of list confirmation */}
-                {!hasMore && filtered.length > 50 && (
+                {!hasMore && filtered.length > limit && (
                   <tr className="excel-end-row">
-                    <td colSpan="8" style={{ textAlign: 'center', padding: '10px', background: 'var(--bg-surface-2)', color: 'var(--text-muted)', fontSize: '0.72rem', fontWeight: 700 }}>
+                    <td colSpan="9" style={{ textAlign: 'center', padding: '10px', background: 'var(--bg-surface-2)', color: 'var(--text-muted)', fontSize: '0.72rem', fontWeight: 700 }}>
                       ✓ All {filtered.length} leads loaded
                     </td>
                   </tr>
@@ -1623,6 +1775,34 @@ const MyLeads = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* ── COMPLETE LEAD DETAIL & CUSTOMER 360 MODAL ── */}
+      {detailModalLead && (
+        <LeadDetailModal
+          lead={detailModalLead}
+          rowNumber={detailModalRowNumber}
+          onClose={() => {
+            const activeId = detailModalLead._id || detailModalLead.id || detailModalLead.contactId;
+            setDetailModalLead(null);
+            setDetailModalRowNumber(null);
+            restoreScrollPosition(activeId);
+          }}
+          user={user}
+          onStatusChange={(targetLead, newStatus) => handleStatusChange(targetLead, newStatus, 'lead')}
+          onOpenReceipt={(targetLead) => openReceiptModal(targetLead)}
+          onOpenCharity={(targetLead) => openCharityModal(targetLead)}
+          onOpenCallAction={(targetLead) => {
+            openCallActionModal(targetLead);
+            const p = targetLead.fields?.Phone || targetLead.fields?.phone || targetLead.fields?.Mobile || targetLead.phone;
+            if (p) triggerTelCall(p);
+          }}
+          onDelete={(targetId) => {
+            handleDelete(targetId);
+            setDetailModalLead(null);
+          }}
+          addToast={addToast}
+        />
       )}
 
       {/* ── STATUS UPDATE MODAL ── */}

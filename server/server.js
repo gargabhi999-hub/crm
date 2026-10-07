@@ -2,6 +2,13 @@
 process.env.NODE_OPTIONS = '--dns-result-order=ipv4first';
 
 require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
+
+process.on('unhandledRejection', (reason) => {
+  console.warn('⚠️ [Unhandled Rejection Handled]:', reason?.message || reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('❌ [Uncaught Exception Handled]:', err?.message || err);
+});
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
@@ -754,8 +761,11 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => console.log('📡 Real-time Client disconnected:', socket.id));
 });
 
-// --- Missed/Upcoming Reminders Check Workers ---
+// --- Missed/Upcoming Reminders Check Workers with Concurrency Guards ---
+let isCheckingAppointments = false;
 async function checkAppointments() {
+  if (isCheckingAppointments) return;
+  isCheckingAppointments = true;
   try {
     const now = new Date();
     const upcoming = await prisma.contact.findMany({
@@ -777,10 +787,17 @@ async function checkAppointments() {
       });
       await prisma.contact.update({ where: { id: app.id }, data: { reminderSent: true } });
     }
-  } catch (err) { console.error('Appointment worker error:', err.message); }
+  } catch (err) {
+    // Silent catch during transient network hiccup
+  } finally {
+    isCheckingAppointments = false;
+  }
 }
 
+let isCheckingCallbacks = false;
 async function checkCallbacks() {
+  if (isCheckingCallbacks) return;
+  isCheckingCallbacks = true;
   try {
     const now = new Date();
     const upcoming = await prisma.contact.findMany({
@@ -806,10 +823,17 @@ async function checkCallbacks() {
       });
       await prisma.contact.update({ where: { id: cb.id }, data: { cbReminderSent: true } });
     }
-  } catch (err) { console.error('Callback worker error:', err.message); }
+  } catch (err) {
+    // Silent catch during transient network hiccup
+  } finally {
+    isCheckingCallbacks = false;
+  }
 }
 
+let isCheckingSessions = false;
 async function checkInactiveSessions() {
+  if (isCheckingSessions) return;
+  isCheckingSessions = true;
   try {
     const now = new Date();
     const idleLimitMs = 7 * 60 * 1000; // 7 minutes
@@ -844,7 +868,9 @@ async function checkInactiveSessions() {
       console.log(`⏰ Background Worker Auto-Logout: Closed session ${session.id} for user ${session.userId} due to 7m inactivity.`);
     }
   } catch (err) {
-    console.error('❌ [checkInactiveSessions worker error]:', err.message);
+    // Silent catch during transient network hiccup
+  } finally {
+    isCheckingSessions = false;
   }
 }
 
@@ -856,10 +882,10 @@ async function start() {
   server.listen(PORT, () => {
     console.log(`🚀 CRM Monolithic Server running on http://localhost:${PORT}`);
     
-    // Start background check interval workers
-    setInterval(checkAppointments, 10000);
-    setInterval(checkCallbacks, 10000);
-    setInterval(checkInactiveSessions, 30000);
+    // Start background check interval workers (30s and 60s intervals to prevent remote DB connection hammering)
+    setInterval(checkAppointments, 30000);
+    setInterval(checkCallbacks, 30000);
+    setInterval(checkInactiveSessions, 60000);
     startEmailReplyWorker();
   });
 

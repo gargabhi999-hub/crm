@@ -120,7 +120,7 @@ router.get('/my-leads', verify, authorize(['superadmin', 'agent', 'tl', 'admin']
     }
 
     const pageNum = page ? Math.max(1, parseInt(page) || 1) : null;
-    const limitNum = limit ? Math.min(200, Math.max(1, parseInt(limit) || 50)) : (pageNum ? 50 : null);
+    const limitNum = limit ? Math.min(200, Math.max(1, parseInt(limit) || 100)) : (pageNum ? 100 : null);
     const skip = pageNum && limitNum ? (pageNum - 1) * limitNum : 0;
 
     const contactWhere = {

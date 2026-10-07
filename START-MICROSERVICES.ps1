@@ -1,12 +1,21 @@
 # Nexus Microservices Startup Script
 Write-Host "🚀 Starting Nexus Microservices locally..." -ForegroundColor Cyan
 
-# 1. Cleanup
-Write-Host "🧹 Cleaning up old node processes..." -ForegroundColor Yellow
-Get-Process node -ErrorAction SilentlyContinue | Stop-Process -Force
+# 1. Cleanup CRM ports if in use
+Write-Host "🧹 Checking for conflicting processes on ports 4000 & 5173..." -ForegroundColor Yellow
+$crmPorts = @(4000, 5173)
+foreach ($p in $crmPorts) {
+    $conn = Get-NetTCPConnection -LocalPort $p -ErrorAction SilentlyContinue
+    if ($conn) {
+        $pids = $conn | Select-Object -ExpandProperty OwningProcess -Unique
+        foreach ($procId in $pids) {
+            Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
 
 # 2. Launch Monolithic Backend Server
-Write-Host "📦 Launching Unified Monolithic CRM Server (3000)..."
+Write-Host "📦 Launching Unified Monolithic CRM Server (4000)..."
 Start-Process powershell -ArgumentList "-NoExit", "-Command", "node server/server.js" -WindowStyle Normal
 
 # 3. Wait for services to initialize

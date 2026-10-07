@@ -362,6 +362,31 @@
   white-space: nowrap;
 }
 
+.excel-date-cell {
+  white-space: nowrap;
+  font-size: 0.76rem;
+  min-width: 110px;
+}
+
+.excel-date-wrapper {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.excel-date-day {
+  font-weight: 700;
+  color: var(--text-primary);
+  font-size: 0.77rem;
+  letter-spacing: -0.01em;
+}
+
+.excel-date-time {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
 .excel-remarks-cell {
   max-width: 280px;
   min-width: 200px;

@@ -2,12 +2,8 @@
 title Nexus Microservices
 echo 🚀 Starting Nexus Microservices locally...
 
-:: 1. Cleanup old processes
-echo 🧹 Cleaning up old node processes...
-taskkill /F /IM node.exe /T >nul 2>&1
-
-:: 2. Launch Monolithic Backend Server
-echo 📦 Launching Unified Monolithic CRM Server (3000)...
+:: 1. Launch Monolithic Backend Server
+echo 📦 Launching Unified Monolithic CRM Server (4000)...
 start "Backend" cmd /k "node server/server.js"
 
 :: 3. Wait for database push & connection to warm up
