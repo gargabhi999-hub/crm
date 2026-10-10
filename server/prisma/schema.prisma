@@ -102,6 +102,8 @@ model Contact {
   @@index([disposition, isDeleted, status, lastModified])
   @@index([disposition, isDeleted, batchId, lastModified])
   @@index([disposition, isDeleted, conversionDate])
+  @@index([leadAmount])
+  @@index([disposition, isDeleted, leadAmount])
   @@map("contacts")
 }
 
@@ -133,6 +135,7 @@ model Lead {
   @@index([createdAt])
   @@index([conversionDate])
   @@index([isCharityConfirmed])
+  @@index([leadAmount])
   @@index([assignedTo, createdAt])
   @@index([adminId, createdAt])
   @@index([status, lastModified])

@@ -14,9 +14,84 @@ function parseCSV(buffer) {
 }
 
 function parseExcel(buffer) {
-  const wb = XLSX.read(buffer, { type: 'buffer' });
+  const wb = XLSX.read(buffer, { type: 'buffer', cellDates: true });
   const ws = wb.Sheets[wb.SheetNames[0]];
-  return XLSX.utils.sheet_to_json(ws, { defval: '' });
+  return XLSX.utils.sheet_to_json(ws, { defval: '', raw: false, dateNF: 'yyyy-mm-dd' });
+}
+
+function parseRecordDate(val) {
+  if (!val && val !== 0) return null;
+  if (val instanceof Date) {
+    return isNaN(val.getTime()) ? null : val;
+  }
+  if (typeof val === 'number') {
+    if (val > 100000000000) {
+      const d = new Date(val);
+      return isNaN(d.getTime()) ? null : d;
+    }
+    const d = new Date(Math.round((val - 25569) * 86400 * 1000));
+    return isNaN(d.getTime()) ? null : d;
+  }
+  if (typeof val === 'string') {
+    const s = val.trim();
+    if (!s) return null;
+
+    if (/^\d+(\.\d+)?$/.test(s)) {
+      const num = parseFloat(s);
+      if (num > 100000000000) {
+        const d = new Date(num);
+        if (!isNaN(d.getTime())) return d;
+      } else if (num > 10000 && num < 100000) {
+        const d = new Date(Math.round((num - 25569) * 86400 * 1000));
+        if (!isNaN(d.getTime())) return d;
+      }
+    }
+
+    const dmyMatch = s.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
+    if (dmyMatch) {
+      const day = parseInt(dmyMatch[1], 10);
+      const month = parseInt(dmyMatch[2], 10) - 1;
+      const year = parseInt(dmyMatch[3], 10);
+      const hour = dmyMatch[4] ? parseInt(dmyMatch[4], 10) : 0;
+      const min = dmyMatch[5] ? parseInt(dmyMatch[5], 10) : 0;
+      const sec = dmyMatch[6] ? parseInt(dmyMatch[6], 10) : 0;
+      const d = new Date(year, month, day, hour, min, sec);
+      if (!isNaN(d.getTime())) return d;
+    }
+
+    const standard = new Date(s);
+    if (!isNaN(standard.getTime())) return standard;
+  }
+  return null;
+}
+
+function findRowDate(row) {
+  if (!row || typeof row !== 'object') return null;
+  const keys = Object.keys(row);
+  const dateCandidates = [
+    'date', 'leaddate', 'lead_date', 'lead date',
+    'conversiondate', 'conversion_date', 'conversion date',
+    'createddate', 'created_date', 'created date',
+    'createdat', 'created_at',
+    'uploaddate', 'upload_date', 'upload date',
+    'datetime', 'timestamp'
+  ];
+
+  for (const candidate of dateCandidates) {
+    const foundKey = keys.find(k => k.toLowerCase().replace(/[^a-z0-9_ ]/g, '').trim() === candidate);
+    if (foundKey && row[foundKey]) {
+      const parsed = parseRecordDate(row[foundKey]);
+      if (parsed) return parsed;
+    }
+  }
+
+  const fallbackKey = keys.find(k => k.toLowerCase().includes('date'));
+  if (fallbackKey && row[fallbackKey]) {
+    const parsed = parseRecordDate(row[fallbackKey]);
+    if (parsed) return parsed;
+  }
+
+  return null;
 }
 
 router.post('/', verify, authorize(['admin', 'tl', 'agent']), upload.single('file'), async (req, res) => {
@@ -123,19 +198,25 @@ router.post('/', verify, authorize(['admin', 'tl', 'agent']), upload.single('fil
           return;
         }
         
+        const capturedDate = findRowDate(row) || new Date();
         const contactDoc = {
           assignedTo: assignedId,
           batchId,
           adminId: req.user.role === 'admin' ? (req.user._id || req.user.id) : (req.user.adminId ? req.user.adminId : null),
-          fields: row,
+          fields: {
+            ...row,
+            Date: row.Date || row.date || capturedDate.toISOString()
+          },
           isDeleted: false,
           disposition: isLead ? 'Lead' : null,
-          queueOrder: 0
+          queueOrder: 0,
+          createdAt: capturedDate
         };
 
         if (isLead) {
           contactDoc.status = row.Status || row.status || 'Converted';
-          contactDoc.leadAmount = Number(row.LeadAmount || row.leadAmount || row.Amount || 0);
+          contactDoc.leadAmount = Number(row.LeadAmount || row.leadAmount || row.Amount || row.amount || 0);
+          contactDoc.conversionDate = capturedDate;
           const transactionId = row.TransactionId || row.transactionId || '';
           contactDoc.remarks = (row.Remarks || row.remarks || 'Uploaded via Lead Template') + (transactionId ? ` (TXN: ${transactionId})` : '');
         }
@@ -202,8 +283,8 @@ router.get('/template', verify, authorize(['admin', 'tl', 'agent']), async (req,
   let sampleRow = [];
 
   if (type === 'leads') {
-    headers = ['Name', 'Phone', 'Email', 'LeadAmount', 'Status', 'Remarks', 'TransactionId', 'Agent'];
-    sampleRow = ['John Doe', '9876543210', 'john@example.com', '5000', 'Converted', 'Interested in premium plan', 'TXN123456', 'Priya (Agent)'];
+    headers = ['Date', 'Name', 'Phone', 'Email', 'LeadAmount', 'Status', 'Remarks', 'TransactionId', 'Agent'];
+    sampleRow = [new Date().toISOString().slice(0, 10), 'John Doe', '9876543210', 'john@example.com', '5000', 'Converted', 'Interested in premium plan', 'TXN123456', 'Priya (Agent)'];
   } else {
     headers = ['Name', 'Phone', 'Email', 'City', 'Source', 'Agent'];
     sampleRow = ['Jane Smith', '9123456780', 'jane@example.com', 'Mumbai', 'Website', 'Amit (Agent)'];

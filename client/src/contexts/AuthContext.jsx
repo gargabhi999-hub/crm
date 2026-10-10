@@ -91,7 +91,7 @@ export const AuthProvider = ({ children }) => {
 
     let inactivityTimer;
     let lastPing = Date.now();
-    const INACTIVITY_LIMIT = 7 * 60 * 1000; // 7 minutes
+    const INACTIVITY_LIMIT = 10 * 60 * 1000; // 10 minutes
     const PING_INTERVAL = 30 * 1000; // 30 seconds
 
     const resetInactivity = () => {

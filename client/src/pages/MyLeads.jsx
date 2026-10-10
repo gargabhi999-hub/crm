@@ -126,6 +126,11 @@ const MyLeads = () => {
   const [convertedStartDate, setConvertedStartDate] = useState('');
   const [convertedEndDate, setConvertedEndDate] = useState('');
 
+  // Lead Amount Filter State
+  const [amountPreset, setAmountPreset] = useState('all');
+  const [minAmount, setMinAmount] = useState('');
+  const [maxAmount, setMaxAmount] = useState('');
+
   // Call Action Modal State
   const [callActionLead, setCallActionLead] = useState(null);
 
@@ -290,6 +295,37 @@ const MyLeads = () => {
       const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
       setConvertedStartDate(formatDateInput(firstDay));
       setConvertedEndDate(formatDateInput(now));
+    } else if (preset === 'last_30_days') {
+      const past30 = new Date(now);
+      past30.setDate(past30.getDate() - 30);
+      setConvertedStartDate(formatDateInput(past30));
+      setConvertedEndDate(formatDateInput(now));
+    }
+  };
+
+  const handleAmountPresetChange = (preset) => {
+    setAmountPreset(preset);
+    if (preset === 'all') {
+      setMinAmount('');
+      setMaxAmount('');
+    } else if (preset === '0-1k') {
+      setMinAmount('0');
+      setMaxAmount('1000');
+    } else if (preset === '1k-5k') {
+      setMinAmount('1000');
+      setMaxAmount('5000');
+    } else if (preset === '5k-10k') {
+      setMinAmount('5000');
+      setMaxAmount('10000');
+    } else if (preset === '10k-25k') {
+      setMinAmount('10000');
+      setMaxAmount('25000');
+    } else if (preset === '25k-50k') {
+      setMinAmount('25000');
+      setMaxAmount('50000');
+    } else if (preset === '50k+') {
+      setMinAmount('50000');
+      setMaxAmount('');
     }
   };
 
@@ -345,13 +381,15 @@ const MyLeads = () => {
       if (statusFilter !== 'all') params.append('status', statusFilter);
       if (convertedStartDate) params.append('convertedFrom', convertedStartDate);
       if (convertedEndDate) params.append('convertedTo', convertedEndDate);
+      if (minAmount) params.append('minAmount', minAmount);
+      if (maxAmount) params.append('maxAmount', maxAmount);
 
       params.append('page', activePage);
       params.append('limit', activeLimit);
 
       const [leadsRes, statsRes] = await Promise.all([
         api.get(`/leads/my-leads?${params.toString()}`),
-        api.get('/leads/stats'),
+        api.get(`/leads/stats?${params.toString()}`),
       ]);
 
       const incomingLeads = Array.isArray(leadsRes.data?.leads) 
@@ -482,6 +520,8 @@ const MyLeads = () => {
       if (statusFilter !== 'all') params.append('status', statusFilter);
       if (convertedStartDate) params.append('convertedFrom', convertedStartDate);
       if (convertedEndDate) params.append('convertedTo', convertedEndDate);
+      if (minAmount) params.append('minAmount', minAmount);
+      if (maxAmount) params.append('maxAmount', maxAmount);
       params.append('page', nextPage);
       params.append('limit', limit);
 
@@ -658,7 +698,7 @@ const MyLeads = () => {
     pageRef.current = 1;
     setPageOffset(0);
     fetchData(false, null, 1);
-  }, [limit, searchTerm, sourceFilter, statusFilter, convertedStartDate, convertedEndDate]);
+  }, [limit, searchTerm, sourceFilter, statusFilter, convertedStartDate, convertedEndDate, minAmount, maxAmount]);
 
   useEffect(() => {
     if (!socket) return;
@@ -1059,9 +1099,21 @@ const MyLeads = () => {
       (sourceFilter === 'created' ? fields.manuallyCreated : !fields.manuallyCreated);
     const matchesStatus = statusFilter === 'all' || lead.status === statusFilter;
 
+    let matchesAmount = true;
+    const effAmt = lead.isCharityConfirmed && (lead.charityAmount !== null && lead.charityAmount !== undefined) 
+      ? Number(lead.charityAmount) 
+      : Number(lead.leadAmount || 0);
+    if (minAmount && !isNaN(Number(minAmount))) {
+      if (effAmt < Number(minAmount)) matchesAmount = false;
+    }
+    if (maxAmount && !isNaN(Number(maxAmount))) {
+      if (effAmt > Number(maxAmount)) matchesAmount = false;
+    }
+
     let matchesConvertedDate = true;
     if (convertedStartDate || convertedEndDate) {
-      const convDate = lead.conversionDate ? new Date(lead.conversionDate) : (lead.createdAt ? new Date(lead.createdAt) : null);
+      const effDateVal = lead.conversionDate || (fields && (fields.Date || fields.date || fields['Lead Date'] || fields['Created Date'] || fields.created_at)) || lead.createdAt;
+      const convDate = effDateVal ? new Date(effDateVal) : null;
       if (convDate && !isNaN(convDate.getTime())) {
         if (convertedStartDate) {
           const sDate = new Date(convertedStartDate);
@@ -1078,7 +1130,7 @@ const MyLeads = () => {
       }
     }
 
-    return matchesSearch && matchesSource && matchesStatus && matchesConvertedDate;
+    return matchesSearch && matchesSource && matchesStatus && matchesConvertedDate && matchesAmount;
   });
 
   return (
@@ -1294,7 +1346,8 @@ const MyLeads = () => {
                 <option value="yesterday">Yesterday</option>
                 <option value="this_week">This Week</option>
                 <option value="this_month">This Month</option>
-                <option value="custom">Custom...</option>
+                <option value="last_30_days">Last 30 Days</option>
+                <option value="custom">Custom Date...</option>
               </select>
             </div>
 
@@ -1307,7 +1360,38 @@ const MyLeads = () => {
                 title="Clear date filter"
               >
                 <X size={13} />
-                <span className="hide-on-mobile">Clear</span>
+                <span className="hide-on-mobile">Clear Date</span>
+              </button>
+            )}
+
+            {/* Amount Filter */}
+            <div className="leads-filter-pill-wrapper">
+              <select 
+                className="input-field leads-filter-select" 
+                value={amountPreset} 
+                onChange={e => handleAmountPresetChange(e.target.value)}
+              >
+                <option value="all">💰 All Amounts</option>
+                <option value="0-1k">₹0 - ₹1,000</option>
+                <option value="1k-5k">₹1,000 - ₹5,000</option>
+                <option value="5k-10k">₹5,000 - ₹10,000</option>
+                <option value="10k-25k">₹10,000 - ₹25,000</option>
+                <option value="25k-50k">₹25,000 - ₹50,000</option>
+                <option value="50k+">₹50,000+</option>
+                <option value="custom">Custom Range...</option>
+              </select>
+            </div>
+
+            {/* Clear Amount Filter Button if active */}
+            {(minAmount || maxAmount) && (
+              <button 
+                type="button" 
+                className="btn btn-outline leads-clear-date-btn" 
+                onClick={() => handleAmountPresetChange('all')}
+                title="Clear amount filter"
+              >
+                <X size={13} />
+                <span className="hide-on-mobile">Clear Amt</span>
               </button>
             )}
           </div>
@@ -1316,6 +1400,7 @@ const MyLeads = () => {
         {/* Custom Date Range Picker (collapsible row if custom is picked) */}
         {convertedDatePreset === 'custom' && !mobileSearchOpen && (
           <div className="leads-custom-date-row animate-fade-in">
+            <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)' }}>From:</span>
             <input 
               type="date" 
               className="input-field custom-date-input" 
@@ -1330,6 +1415,32 @@ const MyLeads = () => {
               value={convertedEndDate}
               onChange={e => setConvertedEndDate(e.target.value)}
               title="To Date"
+            />
+          </div>
+        )}
+
+        {/* Custom Amount Range Picker (collapsible row if custom is picked) */}
+        {amountPreset === 'custom' && !mobileSearchOpen && (
+          <div className="leads-custom-date-row animate-fade-in" style={{ gap: 8, alignItems: 'center' }}>
+            <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)' }}>₹ Min:</span>
+            <input 
+              type="number" 
+              className="input-field custom-date-input" 
+              placeholder="0"
+              style={{ width: 100 }}
+              value={minAmount}
+              onChange={e => setMinAmount(e.target.value)}
+              title="Minimum Amount"
+            />
+            <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)' }}>₹ Max:</span>
+            <input 
+              type="number" 
+              className="input-field custom-date-input" 
+              placeholder="Max"
+              style={{ width: 100 }}
+              value={maxAmount}
+              onChange={e => setMaxAmount(e.target.value)}
+              title="Maximum Amount"
             />
           </div>
         )}
@@ -1485,7 +1596,7 @@ const MyLeads = () => {
                   <th>Status</th>
                   <th style={{ textAlign: 'right' }}>Amount</th>
                   <th>Charity / UTR</th>
-                  <th>Created Date</th>
+                  <th>Lead Date</th>
                   <th>Remarks</th>
                   <th className="excel-actions-header" style={{ textAlign: 'center' }}>Actions</th>
                 </tr>
@@ -1508,6 +1619,8 @@ const MyLeads = () => {
                   const effAmount = lead.isCharityConfirmed && (lead.charityAmount !== null && lead.charityAmount !== undefined) 
                     ? lead.charityAmount 
                     : lead.leadAmount;
+
+                  const effectiveLeadDate = lead.conversionDate || (fields && (fields.Date || fields.date || fields['Lead Date'] || fields['Created Date'] || fields.created_at)) || lead.createdAt;
 
                   const statusColor = isConverted ? '#10b981' : isNegative ? '#ef4444' : lead.status === 'Call Back' ? '#06b6d4' : 'var(--border)';
 
@@ -1661,18 +1774,18 @@ const MyLeads = () => {
                         </div>
                       </td>
 
-                      {/* Created Date */}
+                      {/* Lead Date / Auto Date Capture */}
                       <td className="excel-date-cell">
                         <div 
                           className="excel-date-wrapper"
-                          title={lead.createdAt ? new Date(lead.createdAt).toLocaleString() : 'N/A'}
+                          title={effectiveLeadDate ? `Lead Captured Date: ${new Date(effectiveLeadDate).toLocaleString()}` : 'N/A'}
                         >
                           <span className="excel-date-day">
-                            {lead.createdAt ? formatLeadDate(lead.createdAt).date : 'N/A'}
+                            {effectiveLeadDate ? formatLeadDate(effectiveLeadDate).date : 'N/A'}
                           </span>
-                          {lead.createdAt && (
+                          {effectiveLeadDate && (
                             <span className="excel-date-time">
-                              {formatLeadDate(lead.createdAt).time}
+                              {formatLeadDate(effectiveLeadDate).time}
                             </span>
                           )}
                         </div>

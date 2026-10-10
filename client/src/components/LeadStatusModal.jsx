@@ -103,6 +103,9 @@ const LeadStatusModal = ({ lead, newStatus, onClose, onSave, submitting }) => {
     if (receiptImage) {
       payload.receiptImage = receiptImage;
     }
+    if (newStatus === 'Converted') {
+      payload.conversionDate = new Date().toISOString();
+    }
     onSave(payload);
   };
 

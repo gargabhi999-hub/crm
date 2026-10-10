@@ -41,6 +41,24 @@ function buildSqlWhere(whereQuery, params = []) {
     else if (key === 'disposition') colName = 'disposition';
     else if (key === 'status') colName = 'status';
     else if (key === 'conversionDate') colName = 'conversion_date';
+    else if (key === 'leadAmount') colName = 'lead_amount';
+    else if (key === 'createdAt') colName = 'created_at';
+
+    if (key === 'dateRange' && value) {
+      if (value.gte && value.lte) {
+        params.push(value.gte, value.lte);
+        const p1 = `$${params.length - 1}`;
+        const p2 = `$${params.length}`;
+        clauses.push(`((conversion_date >= ${p1} AND conversion_date <= ${p2}) OR (conversion_date IS NULL AND created_at >= ${p1} AND created_at <= ${p2}))`);
+      } else if (value.gte) {
+        params.push(value.gte);
+        clauses.push(`(conversion_date >= $${params.length} OR (conversion_date IS NULL AND created_at >= $${params.length}))`);
+      } else if (value.lte) {
+        params.push(value.lte);
+        clauses.push(`(conversion_date <= $${params.length} OR (conversion_date IS NULL AND created_at <= $${params.length}))`);
+      }
+      continue;
+    }
 
     if (value === null) {
       clauses.push(`${colName} IS NULL`);
@@ -86,7 +104,7 @@ function buildSqlWhere(whereQuery, params = []) {
 
 router.get('/my-leads', verify, authorize(['superadmin', 'agent', 'tl', 'admin']), async (req, res) => {
   try {
-    const { search, source, status, page, limit, convertedFrom, convertedTo } = req.query;
+    const { search, source, status, page, limit, convertedFrom, convertedTo, minAmount, maxAmount } = req.query;
     let whereQuery = {};
     if (req.user.role === 'agent') {
       whereQuery.assignedTo = req.user._id || req.user.id;
@@ -102,21 +120,31 @@ router.get('/my-leads', verify, authorize(['superadmin', 'agent', 'tl', 'admin']
 
     if (status && status !== 'all') whereQuery.status = status;
 
+    // High performance amount filtering
+    const parsedMin = (minAmount !== undefined && minAmount !== '' && minAmount !== null) ? parseFloat(minAmount) : null;
+    const parsedMax = (maxAmount !== undefined && maxAmount !== '' && maxAmount !== null) ? parseFloat(maxAmount) : null;
+    if (parsedMin !== null && !isNaN(parsedMin) && parsedMax !== null && !isNaN(parsedMax)) {
+      whereQuery.leadAmount = { gte: parsedMin, lte: parsedMax };
+    } else if (parsedMin !== null && !isNaN(parsedMin)) {
+      whereQuery.leadAmount = { gte: parsedMin };
+    } else if (parsedMax !== null && !isNaN(parsedMax)) {
+      whereQuery.leadAmount = { lte: parsedMax };
+    }
+
+    // High performance date filtering capturing conversionDate and createdAt fallback
+    let dateRange = null;
     if (convertedFrom && convertedTo) {
       const cStart = new Date(convertedFrom);
       const cEnd = new Date(new Date(convertedTo).setHours(23, 59, 59, 999));
-      whereQuery.conversionDate = {
-        gte: cStart,
-        lte: cEnd
-      };
+      dateRange = { gte: cStart, lte: cEnd };
     } else if (convertedFrom) {
-      whereQuery.conversionDate = {
-        gte: new Date(convertedFrom)
-      };
+      dateRange = { gte: new Date(convertedFrom) };
     } else if (convertedTo) {
-      whereQuery.conversionDate = {
-        lte: new Date(new Date(convertedTo).setHours(23, 59, 59, 999))
-      };
+      dateRange = { lte: new Date(new Date(convertedTo).setHours(23, 59, 59, 999)) };
+    }
+
+    if (dateRange) {
+      whereQuery.dateRange = dateRange;
     }
 
     const pageNum = page ? Math.max(1, parseInt(page) || 1) : null;
@@ -128,6 +156,25 @@ router.get('/my-leads', verify, authorize(['superadmin', 'agent', 'tl', 'admin']
       isDeleted: false,
       ...whereQuery
     };
+    delete contactWhere.dateRange;
+
+    if (dateRange) {
+      contactWhere.OR = [
+        {
+          conversionDate: {
+            ...(dateRange.gte ? { gte: dateRange.gte } : {}),
+            ...(dateRange.lte ? { lte: dateRange.lte } : {})
+          }
+        },
+        {
+          conversionDate: null,
+          createdAt: {
+            ...(dateRange.gte ? { gte: dateRange.gte } : {}),
+            ...(dateRange.lte ? { lte: dateRange.lte } : {})
+          }
+        }
+      ];
+    }
 
     let total = 0;
     let contacts = [];
@@ -239,6 +286,12 @@ router.get('/my-leads', verify, authorize(['superadmin', 'agent', 'tl', 'admin']
       const normPhone = normalize(rawPhone);
       const leadsCount = (normPhone !== 'N/A' && phoneCountMap.has(normPhone)) ? phoneCountMap.get(normPhone) : 1;
 
+      const effectiveDate = override?.conversionDate 
+        || c.conversionDate 
+        || (f && (f.Date || f.date || f['Lead Date'] || f['Created Date'] || f.created_at)) 
+        || override?.createdAt 
+        || c.createdAt;
+
       return {
         _id: c.id,
         id: c.id,
@@ -256,10 +309,10 @@ router.get('/my-leads', verify, authorize(['superadmin', 'agent', 'tl', 'admin']
         isCharityConfirmed: override?.isCharityConfirmed !== undefined ? !!override.isCharityConfirmed : !!c.isCharityConfirmed,
         charityConfirmedAt: override?.charityConfirmedAt || c.charityConfirmedAt,
         charityConfirmedBy: override?.charityConfirmedBy || c.charityConfirmedBy,
-        conversionDate: override?.conversionDate || c.conversionDate,
+        conversionDate: effectiveDate,
         status: override?.status || c.status || 'Pending',
         remarks: override?.remarks || c.remarks || 'Imported Lead',
-        createdAt: override?.createdAt || c.createdAt,
+        createdAt: override?.createdAt || effectiveDate || c.createdAt,
         lastModified: override?.lastModified || c.lastModified,
         callBackDt: c.callBackDt,
         leadsCount
@@ -285,8 +338,8 @@ router.get('/my-leads', verify, authorize(['superadmin', 'agent', 'tl', 'admin']
 
 router.get('/stats', verify, authorize(['superadmin', 'agent', 'tl', 'admin']), async (req, res) => {
   try {
-    const { agentId } = req.query;
-    const cacheKey = `stats_${req.user.id}_${req.user.role}_${agentId || 'all'}`;
+    const { agentId, convertedFrom, convertedTo, minAmount, maxAmount, status, source } = req.query;
+    const cacheKey = `stats_${req.user.id}_${req.user.role}_${agentId || 'all'}_${convertedFrom || ''}_${convertedTo || ''}_${minAmount || ''}_${maxAmount || ''}_${status || ''}_${source || ''}`;
     const cached = getCachedStats(cacheKey);
     if (cached) {
       return res.json(cached);
@@ -310,11 +363,55 @@ router.get('/stats', verify, authorize(['superadmin', 'agent', 'tl', 'admin']), 
       if (agentId) whereQuery.assignedTo = agentId;
     }
 
+    if (source === 'created') whereQuery.batchId = null;
+    else if (source === 'uploaded') whereQuery.batchId = { not: null };
+
+    if (status && status !== 'all') whereQuery.status = status;
+
+    const parsedMin = (minAmount !== undefined && minAmount !== '' && minAmount !== null) ? parseFloat(minAmount) : null;
+    const parsedMax = (maxAmount !== undefined && maxAmount !== '' && maxAmount !== null) ? parseFloat(maxAmount) : null;
+    if (parsedMin !== null && !isNaN(parsedMin) && parsedMax !== null && !isNaN(parsedMax)) {
+      whereQuery.leadAmount = { gte: parsedMin, lte: parsedMax };
+    } else if (parsedMin !== null && !isNaN(parsedMin)) {
+      whereQuery.leadAmount = { gte: parsedMin };
+    } else if (parsedMax !== null && !isNaN(parsedMax)) {
+      whereQuery.leadAmount = { lte: parsedMax };
+    }
+
+    let dateRange = null;
+    if (convertedFrom && convertedTo) {
+      const cStart = new Date(convertedFrom);
+      const cEnd = new Date(new Date(convertedTo).setHours(23, 59, 59, 999));
+      dateRange = { gte: cStart, lte: cEnd };
+    } else if (convertedFrom) {
+      dateRange = { gte: new Date(convertedFrom) };
+    } else if (convertedTo) {
+      dateRange = { lte: new Date(new Date(convertedTo).setHours(23, 59, 59, 999)) };
+    }
+
     const baseWhere = {
       disposition: 'Lead',
       isDeleted: false,
       ...whereQuery
     };
+
+    if (dateRange) {
+      baseWhere.OR = [
+        {
+          conversionDate: {
+            ...(dateRange.gte ? { gte: dateRange.gte } : {}),
+            ...(dateRange.lte ? { lte: dateRange.lte } : {})
+          }
+        },
+        {
+          conversionDate: null,
+          createdAt: {
+            ...(dateRange.gte ? { gte: dateRange.gte } : {}),
+            ...(dateRange.lte ? { lte: dateRange.lte } : {})
+          }
+        }
+      ];
+    }
 
     const [allLeadsCount, convertedAgg, allAgg] = await Promise.all([
       prisma.contact.count({ where: baseWhere }),
@@ -1391,7 +1488,8 @@ router.post('/create', verify, authorize(['superadmin', 'admin', 'tl', 'agent'])
         status: status || 'Pending',
         remarks: remarks || '',
         transactionId: transactionId || null,
-        createdAt: leadDate
+        createdAt: leadDate,
+        conversionDate: status === 'Converted' ? leadDate : null
       }
     });
 
