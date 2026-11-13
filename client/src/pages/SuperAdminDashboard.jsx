@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useSocket } from '../contexts/SocketContext';
 import api from '../utils/api';
 import {
   Users, PhoneCall, Star, Calendar, Clock,
   TrendingUp, Database, RefreshCw, PhoneOff,
-  AlertCircle, Activity, Trash2, XCircle, Shield
+  AlertCircle, Activity, Trash2, XCircle, Shield, BarChart2
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer,
@@ -62,6 +63,7 @@ const SuperStatCard = ({ title, value, subtext, icon: Icon, accent, delay = 0, g
 const SuperAdminDashboard = () => {
   const { user } = useAuth();
   const { socket } = useSocket();
+  const navigate = useNavigate();
   const [stats, setStats] = useState(null);
   const [adminStats, setAdminStats] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -220,8 +222,16 @@ const SuperAdminDashboard = () => {
 
             {/* Detailed Admin Table */}
             <div className="sa-glass-card sa-table-container sa-slide-up" style={{ animationDelay: '400ms' }}>
-              <div className="sa-card-header" style={{ marginBottom: 16 }}>
+              <div className="sa-card-header" style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <h3>Admin Breakdown</h3>
+                <button
+                  className="btn btn-outline"
+                  style={{ height: 32, fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: 6, borderRadius: 8, padding: '0 10px' }}
+                  onClick={() => navigate('/reports')}
+                  title="Open Reports Section"
+                >
+                  <BarChart2 size={14} /> Company Reports
+                </button>
               </div>
               <div className="sa-table-wrapper">
                 <table className="sa-table">

@@ -31,7 +31,7 @@ const Sidebar = ({ isOpen, onClose }) => {
     { path: '/appointments', icon: Calendar, label: 'Appointments' },
     { path: '/callbacks', icon: Clock, label: 'Callbacks' },
     { path: '/hungup', icon: PhoneOff, label: 'Hung Up Calls', roles: ['admin', 'tl'] },
-    { path: '/reports', icon: BarChart2, label: 'Reports', roles: ['admin', 'tl'] },
+    { path: '/reports', icon: BarChart2, label: 'Reports', roles: ['superadmin', 'admin', 'tl'] },
     { path: '/agent-logs', icon: Activity, label: 'Agent Logs', roles: ['admin'] },
   ];
 

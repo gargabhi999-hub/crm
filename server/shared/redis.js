@@ -21,7 +21,15 @@ function initRedis() {
     const isTls = redisUrl.startsWith('rediss://');
     const clientOptions = {
       url: redisUrl,
-      socket: isTls ? { tls: true, rejectUnauthorized: false } : {}
+      socket: {
+        ...(isTls ? { tls: true, rejectUnauthorized: false } : {}),
+        reconnectStrategy: (retries) => {
+          if (retries >= 3) {
+            return false; // Stop retrying, use in-memory fallback
+          }
+          return 1000;
+        }
+      }
     };
 
     redisClient = createClient(clientOptions);
@@ -57,7 +65,15 @@ async function initRedisSocketAdapter(io) {
     const isTls = redisUrl.startsWith('rediss://');
     const clientOptions = {
       url: redisUrl,
-      socket: isTls ? { tls: true, rejectUnauthorized: false } : {}
+      socket: {
+        ...(isTls ? { tls: true, rejectUnauthorized: false } : {}),
+        reconnectStrategy: (retries) => {
+          if (retries >= 3) {
+            return false;
+          }
+          return 1000;
+        }
+      }
     };
 
     pubClient = createClient(clientOptions);
@@ -70,7 +86,7 @@ async function initRedisSocketAdapter(io) {
     io.adapter(createAdapter(pubClient, subClient));
     console.log('✅ [Socket.io] Redis cluster adapter attached successfully for real-time scale');
   } catch (err) {
-    console.warn('⚠️ [Socket.io Redis Adapter Failed]: Falling back to in-memory adapter.', err.message);
+    console.warn('⚠️ [Socket.io Redis Adapter Failed]: Falling back to standard in-memory adapter.', err.message);
   }
 }
 

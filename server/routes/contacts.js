@@ -766,7 +766,7 @@ router.get('/admin-stats', verify, authorize(['superadmin']), async (req, res) =
 router.get('/stats', verify, authorize(['superadmin', 'agent', 'tl', 'admin']), async (req, res) => {
   try {
     const userId = req.user._id || req.user.id;
-    const { agentId, fromDate, toDate } = req.query;
+    const { agentId, fromDate, toDate, adminId } = req.query;
 
     let conditions = ["is_deleted = false"];
     let params = [];
@@ -802,6 +802,10 @@ router.get('/stats', verify, authorize(['superadmin', 'agent', 'tl', 'admin']), 
         params.push(agentId);
       }
     } else { // superadmin
+      if (adminId && adminId !== 'all') {
+        conditions.push(`admin_id = $${paramCount++}`);
+        params.push(adminId);
+      }
       if (agentId) {
         conditions.push(`assigned_to = $${paramCount++}`);
         params.push(agentId);
@@ -873,6 +877,9 @@ router.get('/stats', verify, authorize(['superadmin', 'agent', 'tl', 'admin']), 
         todayWhere.assignedTo = agentId;
       }
     } else { // superadmin
+      if (adminId && adminId !== 'all') {
+        todayWhere.adminId = adminId;
+      }
       if (agentId) {
         todayWhere.assignedTo = agentId;
       }
