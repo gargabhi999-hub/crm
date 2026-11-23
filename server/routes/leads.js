@@ -516,13 +516,19 @@ router.get('/appointments', verify, authorize(['superadmin', 'agent', 'tl', 'adm
       _id: c.id, contactId: c.id, fields: c.fields, batchId: c.batchId,
       assignedTo: c.assignedTo, agentName: c.assignedTo ? userMap[c.assignedTo] || 'Unassigned' : 'Unassigned',
       appointmentDt: c.appointmentDt, remarks: c.remarks || 'Scheduled',
-      createdAt: c.createdAt || c.disposedAt || new Date(), lastModified: c.lastModified || new Date()
+      createdAt: c.createdAt || c.disposedAt || new Date(),
+      lastModified: c.lastModified || c.disposedAt || c.updatedAt || c.createdAt || new Date()
     }));
+
+    const getApptRecordTime = (rec) => {
+      const d = rec.lastModified || rec.disposedAt || rec.updatedAt || rec.createdAt;
+      return d ? new Date(d).getTime() : 0;
+    };
 
     const mergedMap = new Map();
     [...appointments.map(a => ({ ...a, _id: a.id })), ...mappedContactAppts].forEach(app => {
       const cid = app.contactId ? app.contactId : app._id;
-      if (!mergedMap.has(cid) || new Date(app.createdAt) > new Date(mergedMap.get(cid).createdAt)) {
+      if (!mergedMap.has(cid) || getApptRecordTime(app) > getApptRecordTime(mergedMap.get(cid))) {
         mergedMap.set(cid, app);
       }
     });
@@ -628,13 +634,19 @@ router.get('/callbacks', verify, authorize(['superadmin', 'agent', 'tl', 'admin'
       callBackDt: c.callBackDt, remarks: c.remarks || 'Scheduled Follow Up',
       disposition: c.disposition, status: c.status, leadAmount: c.leadAmount,
       source: c.source || (c.status === 'Call Back' || c.status === 'CallBack' || c.leadAmount > 0 ? 'lead' : 'workflow'),
-      createdAt: c.createdAt || c.disposedAt || new Date(), lastModified: c.lastModified || new Date()
+      createdAt: c.createdAt || c.disposedAt || new Date(),
+      lastModified: c.lastModified || c.disposedAt || c.updatedAt || c.createdAt || new Date()
     }));
+
+    const getCbRecordTime = (rec) => {
+      const d = rec.lastModified || rec.disposedAt || rec.updatedAt || rec.createdAt;
+      return d ? new Date(d).getTime() : 0;
+    };
 
     const mergedMap = new Map();
     [...mappedCallbacks, ...mappedContactCbs].forEach(cb => {
       const cid = cb.contactId ? cb.contactId : cb._id;
-      if (!mergedMap.has(cid) || new Date(cb.createdAt) > new Date(mergedMap.get(cid).createdAt)) {
+      if (!mergedMap.has(cid) || getCbRecordTime(cb) > getCbRecordTime(mergedMap.get(cid))) {
         mergedMap.set(cid, cb);
       }
     });
@@ -674,9 +686,16 @@ router.delete('/appointments/wipe', verify, authorize(['superadmin']), async (re
 
 router.delete('/appointments/:id', verify, authorize(['superadmin', 'agent', 'tl', 'admin']), async (req, res) => {
   try {
-    const query = { id: req.params.id };
-    if (req.user.role === 'agent') query.assignedTo = req.user._id || req.user.id;
-    await prisma.appointment.deleteMany({ where: query });
+    const id = req.params.id;
+    const appt = await prisma.appointment.findFirst({ where: { OR: [{ id }, { contactId: id }] } });
+    const targetContactId = appt ? appt.contactId : id;
+    await Promise.all([
+      prisma.appointment.deleteMany({ where: { OR: [{ id }, { contactId: targetContactId }] } }),
+      targetContactId ? prisma.contact.updateMany({
+        where: { id: targetContactId, disposition: 'Appointment' },
+        data: { disposition: 'Pending', appointmentDt: null, lastModified: new Date() }
+      }) : Promise.resolve()
+    ]);
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 });
@@ -685,9 +704,15 @@ router.post('/appointments/bulk-delete', verify, authorize(['superadmin', 'agent
   try {
     const { ids } = req.body;
     if (!ids || !ids.length) return res.status(400).json({ error: 'No IDs provided' });
-    const query = { id: { in: ids } };
-    if (req.user.role === 'agent') query.assignedTo = req.user._id || req.user.id;
-    await prisma.appointment.deleteMany({ where: query });
+    const appts = await prisma.appointment.findMany({ where: { OR: [{ id: { in: ids } }, { contactId: { in: ids } }] } });
+    const contactIds = [...new Set([...ids, ...appts.map(a => a.contactId).filter(Boolean)])];
+    await Promise.all([
+      prisma.appointment.deleteMany({ where: { OR: [{ id: { in: ids } }, { contactId: { in: contactIds } }] } }),
+      prisma.contact.updateMany({
+        where: { id: { in: contactIds }, disposition: 'Appointment' },
+        data: { disposition: 'Pending', appointmentDt: null, lastModified: new Date() }
+      })
+    ]);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
@@ -703,9 +728,16 @@ router.delete('/callbacks/wipe', verify, authorize(['superadmin']), async (req, 
 
 router.delete('/callbacks/:id', verify, authorize(['superadmin', 'agent', 'tl', 'admin']), async (req, res) => {
   try {
-    const query = { id: req.params.id };
-    if (req.user.role === 'agent') query.assignedTo = req.user._id || req.user.id;
-    await prisma.callback.deleteMany({ where: query });
+    const id = req.params.id;
+    const cb = await prisma.callback.findFirst({ where: { OR: [{ id }, { contactId: id }] } });
+    const targetContactId = cb ? cb.contactId : id;
+    await Promise.all([
+      prisma.callback.deleteMany({ where: { OR: [{ id }, { contactId: targetContactId }] } }),
+      targetContactId ? prisma.contact.updateMany({
+        where: { id: targetContactId, disposition: 'CallBack' },
+        data: { disposition: 'Pending', callBackDt: null, lastModified: new Date() }
+      }) : Promise.resolve()
+    ]);
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 });
@@ -714,9 +746,15 @@ router.post('/callbacks/bulk-delete', verify, authorize(['superadmin', 'agent', 
   try {
     const { ids } = req.body;
     if (!ids || !ids.length) return res.status(400).json({ error: 'No IDs provided' });
-    const query = { id: { in: ids } };
-    if (req.user.role === 'agent') query.assignedTo = req.user._id || req.user.id;
-    await prisma.callback.deleteMany({ where: query });
+    const cbs = await prisma.callback.findMany({ where: { OR: [{ id: { in: ids } }, { contactId: { in: ids } }] } });
+    const contactIds = [...new Set([...ids, ...cbs.map(c => c.contactId).filter(Boolean)])];
+    await Promise.all([
+      prisma.callback.deleteMany({ where: { OR: [{ id: { in: ids } }, { contactId: { in: contactIds } }] } }),
+      prisma.contact.updateMany({
+        where: { id: { in: contactIds }, disposition: 'CallBack' },
+        data: { disposition: 'Pending', callBackDt: null, lastModified: new Date() }
+      })
+    ]);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });

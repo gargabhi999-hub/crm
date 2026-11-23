@@ -143,11 +143,16 @@ const MyAppointments = () => {
     new Date(dateStr).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
 
   const formatMonthDay = (dateStr) => {
+    if (!dateStr) return { month: 'DUE', day: 'NOW', time: 'In Queue', year: '', isPast: false };
     const d = new Date(dateStr);
+    const currYear = new Date().getFullYear();
+    const apptYear = d.getFullYear();
     return {
       month: d.toLocaleDateString('en-IN', { month: 'short' }).toUpperCase(),
       day:   d.getDate(),
       time:  formatTime(dateStr),
+      year:  apptYear !== currYear ? String(apptYear) : '',
+      isPast: d.getTime() < (Date.now() - 30 * 60 * 1000)
     };
   };
 
@@ -239,7 +244,7 @@ const MyAppointments = () => {
             const name    = fields.Name || fields.name || 'Unknown Client';
             const phone   = fields.Phone || fields.phone || fields.Mobile || 'N/A';
             const today   = isToday(app.appointmentDt);
-            const { month, day, time } = formatMonthDay(app.appointmentDt);
+            const { month, day, time, year, isPast } = formatMonthDay(app.appointmentDt);
 
             return (
               <div
@@ -258,7 +263,7 @@ const MyAppointments = () => {
                   }}
                 >
                   <div style={{ fontSize: '0.65rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.1em', opacity: today ? 0.85 : 0.6 }}>
-                    {today ? 'TODAY' : month}
+                    {today ? 'TODAY' : `${month}${year ? ' ' + year : ''}`}
                   </div>
                   <div style={{ fontSize: '2rem', fontWeight: 900, lineHeight: 1.1 }}>{day}</div>
                   <div style={{ fontSize: '0.8rem', fontWeight: 600, marginTop: 2, opacity: 0.9 }}>{time}</div>
@@ -289,13 +294,19 @@ const MyAppointments = () => {
                         <span style={{ fontStyle: 'italic', color: 'var(--text-muted)' }}>"{app.remarks}"</span>
                       )}
                     </div>
-                    {today && (
+                    {today ? (
                       <div style={{ marginTop: 10 }}>
                         <span className="badge badge-primary" style={{ fontSize: '0.7rem' }}>
                           Appointment Today
                         </span>
                       </div>
-                    )}
+                    ) : isPast ? (
+                      <div style={{ marginTop: 10 }}>
+                        <span className="badge" style={{ fontSize: '0.7rem', background: '#fef3c7', color: '#b45309', border: '1px solid #fde68a' }}>
+                          Past / Due Appointment
+                        </span>
+                      </div>
+                    ) : null}
                   </div>
 
                   {user?.role === 'agent' && (

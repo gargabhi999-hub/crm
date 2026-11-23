@@ -157,13 +157,17 @@ const MyCallbacks = () => {
 
   const formatMonthDay = (dateStr) => {
     if (!dateStr) {
-      return { month: 'DUE', day: 'NOW', time: 'In Queue' };
+      return { month: 'DUE', day: 'NOW', time: 'In Queue', year: '', isPast: false };
     }
     const d = new Date(dateStr);
+    const currYear = new Date().getFullYear();
+    const cbYear = d.getFullYear();
     return {
       month: d.toLocaleDateString('en-IN', { month: 'short' }).toUpperCase(),
       day: d.getDate(),
       time: formatTime(dateStr),
+      year: cbYear !== currYear ? String(cbYear) : '',
+      isPast: d.getTime() < (Date.now() - 30 * 60 * 1000)
     };
   };
 
@@ -184,13 +188,13 @@ const MyCallbacks = () => {
           const name = fields.Name || fields.name || 'Unknown Client';
           const phone = fields.Phone || fields.phone || fields.Mobile || 'N/A';
           const today = isToday(cb.callBackDt);
-          const { month, day, time } = formatMonthDay(cb.callBackDt);
+          const { month, day, time, year, isPast } = formatMonthDay(cb.callBackDt);
 
           return (
             <div key={cb._id} className="glass-panel appt-card" style={{ border: today ? '1px solid var(--primary)' : undefined }}>
               {/* Date sidebar */}
               <div className="appt-date-col" style={{ background: today ? 'linear-gradient(160deg, var(--primary), var(--violet))' : 'var(--bg-surface-2)', color: today ? '#fff' : 'var(--text-primary)' }}>
-                <div style={{ fontSize: '0.65rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.1em', opacity: today ? 0.85 : 0.6 }}>{today ? 'TODAY' : month}</div>
+                <div style={{ fontSize: '0.65rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.1em', opacity: today ? 0.85 : 0.6 }}>{today ? 'TODAY' : `${month}${year ? ' ' + year : ''}`}</div>
                 <div style={{ fontSize: '2rem', fontWeight: 900, lineHeight: 1.1 }}>{day}</div>
                 <div style={{ fontSize: '0.8rem', fontWeight: 600, marginTop: 2, opacity: 0.9 }}>{time}</div>
                 {user?.role === 'admin' && (
@@ -252,7 +256,11 @@ const MyCallbacks = () => {
                         Status: {cb.status}
                       </span>
                     )}
-                    {today && <span className="badge badge-primary" style={{ fontSize: '0.7rem' }}>Callback Due Today</span>}
+                    {today ? (
+                      <span className="badge badge-primary" style={{ fontSize: '0.7rem' }}>Callback Due Today</span>
+                    ) : isPast ? (
+                      <span className="badge" style={{ fontSize: '0.7rem', background: '#fef3c7', color: '#b45309', border: '1px solid #fde68a' }}>Past / Due Follow Up</span>
+                    ) : null}
                   </div>
                 </div>
 
