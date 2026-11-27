@@ -24,8 +24,8 @@
       "package": "com.nexuscrm.admin",
       "versionCode": 1,
       "adaptiveIcon": {
-        "foregroundImage": "./assets/nexus-logo.png",
-        "backgroundColor": "#070d1f"
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#090d24"
       },
       "permissions": [
         "android.permission.CAMERA",

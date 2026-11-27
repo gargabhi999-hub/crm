@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Privacy Policy — Nexus CRM (Nexus Staff & Nexus Admin)</title>
+  <style>
+    :root {
+      --bg: #070d1f;
+      --card: #ffffff;
+      --text: #0f172a;
+      --muted: #475569;
+      --border: #e2e8f0;
+      --accent: #2563eb;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: linear-gradient(135deg, #070d1f 0%, #0b2447 55%, #164e63 100%);
+      color: var(--text);
+      padding: 32px 16px;
+      line-height: 1.65;
+    }
+    .card {
+      max-width: 820px;
+      margin: 0 auto;
+      background: var(--card);
+      border-radius: 20px;
+      padding: 36px 32px;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
+    }
+    .badge {
+      display: inline-block;
+      background: #eff6ff;
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 700;
+      padding: 5px 12px;
+      border-radius: 999px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      margin-bottom: 12px;
+    }
+    h1 { margin: 0 0 6px; font-size: 28px; color: #0f172a; }
+    .meta { color: var(--muted); font-size: 14px; margin-bottom: 24px; border-bottom: 1px solid var(--border); padding-bottom: 16px; }
+    h2 { font-size: 18px; margin: 24px 0 8px; color: #0f172a; }
+    p, li { color: #334155; font-size: 15px; }
+    ul { padding-left: 20px; }
+    a { color: var(--accent); }
+    .footer { margin-top: 32px; padding-top: 16px; border-top: 1px solid var(--border); font-size: 13px; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <span class="badge">Privacy Policy</span>
+    <h1>Nexus CRM — Nexus Staff &amp; Nexus Admin</h1>
+    <div class="meta">
+      <strong>Developer:</strong> UniVerseOrder / Nexus CRM &bull;
+      <strong>Effective Date:</strong> November 27, 2026 &bull;
+      <strong>Apps Covered:</strong> Nexus Staff (<code>com.nexuscrm.staff</code>), Nexus Admin (<code>com.nexuscrm.admin</code>), and Nexus CRM Web Portal
+    </div>
+
+    <p>
+      This Privacy Policy describes how Nexus CRM ("we", "our", or "us") collects, uses, stores, and protects
+      information when authorized team members, team leaders, and administrators use the <strong>Nexus Staff</strong>
+      and <strong>Nexus Admin</strong> mobile applications and the Nexus CRM web application.
+    </p>
+
+    <h2>1. Information We Collect</h2>
+    <ul>
+      <li><strong>Account &amp; Authentication Information:</strong> Work name, email address, username, company assignment, role (Agent, Team Leader, Admin, SuperAdmin), and salted Argon2id password hashes.</li>
+      <li><strong>CRM &amp; Workflow Data:</strong> Customer contact records uploaded or managed by your organization, call dispositions, appointments, callbacks, follow-up notes, payment/transaction references, and work/break session logs.</li>
+      <li><strong>Camera &amp; Media Files (Optional, User-Initiated):</strong> When a user chooses to capture or upload a payment receipt image for conversion confirmation, the app requests access to the device Camera or Photo Library solely to extract transaction details via OCR and attach the verification record.</li>
+      <li><strong>Security &amp; Session Metadata:</strong> Short-lived authentication tokens stored securely on-device via encrypted storage (Android Keystore / SecureStore), device network IP addresses for rate limiting, and Cloudflare Turnstile anti-abuse verification tokens during sign-in and password resets.</li>
+    </ul>
+
+    <h2>2. How We Use Your Information</h2>
+    <ul>
+      <li>To authenticate users, enforce role-based and company-isolated workspace access, and protect accounts against brute-force or automated attacks.</li>
+      <li>To synchronize leads, calling workflows, appointments, callbacks, notifications, receipts, and analytics reports across web and mobile clients in real time.</li>
+      <li>To send transactional emails requested by users or administrators (such as password reset links or payment confirmation receipts).</li>
+    </ul>
+
+    <h2>3. Data Sharing &amp; Third-Party Processors</h2>
+    <p>We do <strong>not</strong> sell personal data and do not display third-party advertising. Operational data is processed only by infrastructure providers strictly required to deliver the service:</p>
+    <ul>
+      <li><strong>Cloud Hosting &amp; PostgreSQL Database:</strong> Secure encrypted data storage and API hosting.</li>
+      <li><strong>Cloudflare Turnstile:</strong> Bot and login abuse verification.</li>
+      <li><strong>Email Delivery (SMTP / Brevo):</strong> Transactional password resets and payment confirmation receipts.</li>
+      <li><strong>OCR Receipt Processing:</strong> Extracts transaction IDs/amounts only when a receipt screenshot is explicitly uploaded by an authenticated user.</li>
+    </ul>
+
+    <h2>4. Data Security</h2>
+    <p>
+      All communication between mobile/web clients and Nexus CRM servers uses HTTPS/TLS encryption in transit.
+      Passwords are hashed with Argon2id, refresh tokens are stored as SHA-256 digests with rotation on use, and mobile
+      session credentials are protected in encrypted hardware-backed device storage.
+    </p>
+
+    <h2>5. Data Retention &amp; Account Deletion</h2>
+    <p>
+      Workspace records are retained for as long as your organization's account remains active. Users and company
+      administrators may request account deactivation or permanent deletion at any time using the instructions on our
+      <a href="/account-deletion.html">Account Deletion page</a>.
+    </p>
+
+    <h2>6. Children's Privacy</h2>
+    <p>
+      Nexus Staff and Nexus Admin are intended exclusively for enterprise and workplace users aged 18 and older and are
+      not directed to children under 13 (or applicable local age of consent).
+    </p>
+
+    <h2>7. Contact Us</h2>
+    <p>
+      For privacy questions, data export inquiries, or deletion requests, please contact your organization administrator or email
+      <a href="mailto:lakshayb059@gmail.com">lakshayb059@gmail.com</a>.
+    </p>
+
+    <div class="footer">
+      &copy; 2026 UniVerseOrder / Nexus CRM. All rights reserved.
+    </div>
+  </main>
+</body>
+</html>
