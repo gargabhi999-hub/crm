@@ -39,7 +39,10 @@
       "serverUrl": "https://nexus-2xsa.onrender.com",
       "localServerUrl": "http://10.226.235.50:4000",
       "turnstileSiteKey": "0x4AAAAAAGVQFeiNXzXSirQM",
-      "appVariant": "staff"
+      "appVariant": "staff",
+      "eas": {
+        "projectId": "2eccb010-3ace-4047-96fe-e3b26c5b001d"
+      }
     }
   }
 }

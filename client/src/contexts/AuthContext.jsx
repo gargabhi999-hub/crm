@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import api, { setAccessToken, clearAccessToken, setUnauthorizedHandler } from '../utils/api';
+import api, { setAccessToken, clearAccessToken, setCsrfToken, clearCsrfToken, setUnauthorizedHandler } from '../utils/api';
 
 const AuthContext = createContext();
 
@@ -23,6 +23,7 @@ export const AuthProvider = ({ children }) => {
       // Ignore network errors during logout
     }
     clearAccessToken();
+    clearCsrfToken();
     clearLegacyClientStorage();
     setUser(null);
     setActiveBreak(null);
@@ -35,6 +36,7 @@ export const AuthProvider = ({ children }) => {
       // Ignore network errors during logout-all
     }
     clearAccessToken();
+    clearCsrfToken();
     clearLegacyClientStorage();
     setUser(null);
     setActiveBreak(null);
@@ -74,11 +76,14 @@ export const AuthProvider = ({ children }) => {
       try {
         const res = await api.get('/auth/me');
         if (!cancelled && res.data?.user) {
+          if (res.data.accessToken) setAccessToken(res.data.accessToken);
+          if (res.data.csrfToken) setCsrfToken(res.data.csrfToken);
           setUser(res.data.user);
         }
       } catch {
         if (!cancelled) {
           clearAccessToken();
+          clearCsrfToken();
           setUser(null);
         }
       } finally {
@@ -151,8 +156,9 @@ export const AuthProvider = ({ children }) => {
         return { success: false, error: response.data.error };
       }
 
-      const { accessToken, user: loggedInUser } = response.data;
+      const { accessToken, csrfToken, user: loggedInUser } = response.data;
       setAccessToken(accessToken);
+      if (csrfToken) setCsrfToken(csrfToken);
       setUser(loggedInUser);
 
       // Background fetch for past-due alerts after login
@@ -233,6 +239,9 @@ export const AuthProvider = ({ children }) => {
       const res = await api.post('/auth/change-password', { currentPassword, newPassword });
       if (res.data?.accessToken) {
         setAccessToken(res.data.accessToken);
+      }
+      if (res.data?.csrfToken) {
+        setCsrfToken(res.data.csrfToken);
       }
       if (res.data?.user) {
         setUser(res.data.user);

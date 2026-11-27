@@ -403,7 +403,13 @@ test('3-13. End-to-end auth security workflows: registration, login, bcrypt upgr
     assert.ok(loginRes.cookies.crm_access_token);
     assert.ok(loginRes.cookies.crm_refresh_token);
     assert.ok(loginRes.cookies.crm_csrf);
+    assert.equal(loginRes.data.csrfToken, loginRes.cookies.crm_csrf);
     assert.equal(loginRes.data.user.passwordHash, undefined);
+
+    const csrfEndpointRes = await requestJson(baseUrl, '/api/auth/csrf-token');
+    assert.equal(csrfEndpointRes.status, 200);
+    assert.ok(csrfEndpointRes.data.csrfToken);
+    assert.equal(csrfEndpointRes.data.csrfToken, csrfEndpointRes.cookies.crm_csrf);
 
     let aliceCookies = { ...loginRes.cookies };
 
@@ -421,6 +427,8 @@ test('3-13. End-to-end auth security workflows: registration, login, bcrypt upgr
     const meRes = await requestJson(baseUrl, '/api/auth/me', { cookies: aliceCookies });
     assert.equal(meRes.status, 200);
     assert.equal(meRes.data.user.email, 'alice@example.com');
+    assert.equal(meRes.data.csrfToken, aliceCookies.crm_csrf);
+    assert.ok(meRes.data.accessToken);
     assert.equal(meRes.data.user.passwordHash, undefined);
 
     const forbiddenUsers = await requestJson(baseUrl, '/api/users', { cookies: aliceCookies });
@@ -441,6 +449,7 @@ test('3-13. End-to-end auth security workflows: registration, login, bcrypt upgr
       headers: { 'X-CSRF-Token': aliceCookies.crm_csrf },
     });
     assert.equal(refresh1.status, 200);
+    assert.equal(refresh1.data.csrfToken, refresh1.cookies.crm_csrf);
     assert.notEqual(refresh1.cookies.crm_refresh_token, aliceCookies.crm_refresh_token);
 
     // Replaying the old rotated refresh token triggers family revocation!

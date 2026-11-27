@@ -95,6 +95,17 @@ function getBaseCookieOptions() {
   };
 }
 
+function setCsrfCookie(res, csrfToken) {
+  if (!csrfToken) return;
+  const base = getBaseCookieOptions();
+  const refreshMaxAgeMs = getRefreshExpiresDays() * 24 * 60 * 60 * 1000;
+  res.cookie(CSRF_COOKIE, csrfToken, {
+    ...base,
+    httpOnly: false,
+    maxAge: refreshMaxAgeMs,
+  });
+}
+
 function setAuthCookies(res, { accessToken, refreshToken, csrfToken }) {
   const base = getBaseCookieOptions();
   const refreshMaxAgeMs = getRefreshExpiresDays() * 24 * 60 * 60 * 1000;
@@ -115,11 +126,7 @@ function setAuthCookies(res, { accessToken, refreshToken, csrfToken }) {
   }
 
   if (csrfToken) {
-    res.cookie(CSRF_COOKIE, csrfToken, {
-      ...base,
-      httpOnly: false,
-      maxAge: refreshMaxAgeMs,
-    });
+    setCsrfCookie(res, csrfToken);
   }
 }
 
@@ -144,6 +151,7 @@ module.exports = {
   hashToken,
   signAccessToken,
   verifyAccessToken,
+  setCsrfCookie,
   setAuthCookies,
   clearAuthCookies,
 };

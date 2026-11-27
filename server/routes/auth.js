@@ -9,10 +9,12 @@ const {
 } = require('../shared/passwordService');
 const {
   REFRESH_COOKIE,
+  CSRF_COOKIE,
   getRefreshExpiresDays,
   generateOpaqueToken,
   hashToken,
   signAccessToken,
+  setCsrfCookie,
   setAuthCookies,
   clearAuthCookies,
 } = require('../shared/tokenService');
@@ -47,7 +49,8 @@ async function recordAuthEvent(userId, eventType, req) {
   }
 }
 
-async function issueSessionTokens(user, req, res, existingFamilyId = null) {
+async function issueSessionTokens(user, req, res, existingFamilyId = null, options = {}) {
+  const { skipCookies = false } = options;
   const accessToken = signAccessToken(user);
   const rawRefreshToken = generateOpaqueToken(32);
   const refreshTokenHash = hashToken(rawRefreshToken);
@@ -66,11 +69,13 @@ async function issueSessionTokens(user, req, res, existingFamilyId = null) {
     },
   });
 
-  setAuthCookies(res, {
-    accessToken,
-    refreshToken: rawRefreshToken,
-    csrfToken,
-  });
+  if (!skipCookies) {
+    setAuthCookies(res, {
+      accessToken,
+      refreshToken: rawRefreshToken,
+      csrfToken,
+    });
+  }
 
   return { accessToken, refreshToken: rawRefreshToken, csrfToken };
 }
@@ -142,6 +147,18 @@ function createAuthRouter() {
     maxRequests: 8,
     message: 'Too many password recovery attempts. Please try again later.',
     keyGenerator: (req) => getClientIp(req),
+  });
+
+  // GET /api/auth/csrf-token - ensures a double-submit CSRF cookie exists and returns it for cross-origin frontends
+  router.get('/csrf-token', (req, res) => {
+    const existing = req.cookies?.[CSRF_COOKIE];
+    const csrfToken = (typeof existing === 'string' && existing.length >= 16)
+      ? existing
+      : generateOpaqueToken(24);
+    if (csrfToken !== existing) {
+      setCsrfCookie(res, csrfToken);
+    }
+    return res.json({ csrfToken });
   });
 
   // GET /api/auth/cloudflare-config - non-sensitive widget configuration for frontend
@@ -380,12 +397,19 @@ function createAuthRouter() {
         }
       }
 
-      const { accessToken, refreshToken } = await issueSessionTokens(updatedUser, req, res);
+      const isMobileClient = req.headers['x-client-platform'] === 'mobile' || req.body?.clientType === 'mobile';
+      const { accessToken, refreshToken, csrfToken } = await issueSessionTokens(
+        updatedUser,
+        req,
+        res,
+        null,
+        { skipCookies: isMobileClient }
+      );
       await recordAuthEvent(updatedUser.id, 'LOGIN_SUCCESS', req);
 
-      const isMobileClient = req.headers['x-client-platform'] === 'mobile' || req.body?.clientType === 'mobile';
       return res.json({
         accessToken,
+        csrfToken,
         ...(isMobileClient ? { refreshToken } : {}),
         user: sanitizeUser(updatedUser),
       });
@@ -479,12 +503,14 @@ function createAuthRouter() {
         }),
       ]);
 
-      const { setAuthCookies: setCookies } = require('../shared/tokenService');
-      setCookies(res, { accessToken, refreshToken: nextRawToken, csrfToken });
-
       const isMobileClient = req.headers['x-client-platform'] === 'mobile' || req.body?.clientType === 'mobile';
+      if (!isMobileClient) {
+        setAuthCookies(res, { accessToken, refreshToken: nextRawToken, csrfToken });
+      }
+
       return res.json({
         accessToken,
+        csrfToken,
         ...(isMobileClient ? { refreshToken: nextRawToken } : {}),
         user: sanitizeUser(existing.user),
       });
@@ -497,7 +523,19 @@ function createAuthRouter() {
 
   // GET /api/auth/me
   router.get('/me', verify, async (req, res) => {
-    return res.json({ user: req.currentUser });
+    const existingCsrf = req.cookies?.[CSRF_COOKIE];
+    const csrfToken = (typeof existingCsrf === 'string' && existingCsrf.length >= 16)
+      ? existingCsrf
+      : generateOpaqueToken(24);
+    if (csrfToken !== existingCsrf) {
+      setCsrfCookie(res, csrfToken);
+    }
+    const accessToken = req.authSource === 'cookie' ? signAccessToken(req.user) : undefined;
+    return res.json({
+      user: req.currentUser,
+      csrfToken,
+      ...(accessToken ? { accessToken } : {}),
+    });
   });
 
   // POST /api/auth/logout
@@ -802,8 +840,15 @@ function createAuthRouter() {
         }),
       ]);
 
+      const isMobileClient = req.headers['x-client-platform'] === 'mobile' || req.body?.clientType === 'mobile';
       // Issue a fresh session for the active caller while all other sessions remain invalidated
-      const { accessToken, refreshToken } = await issueSessionTokens(updatedUser, req, res);
+      const { accessToken, refreshToken, csrfToken } = await issueSessionTokens(
+        updatedUser,
+        req,
+        res,
+        null,
+        { skipCookies: isMobileClient }
+      );
       await recordAuthEvent(user.id, 'PASSWORD_CHANGED', req);
 
       const destinationEmail =
@@ -817,10 +862,10 @@ function createAuthRouter() {
         }).catch(() => {});
       }
 
-      const isMobileClient = req.headers['x-client-platform'] === 'mobile' || req.body?.clientType === 'mobile';
       return res.json({
         message: 'Password updated successfully.',
         accessToken,
+        csrfToken,
         ...(isMobileClient ? { refreshToken } : {}),
         user: sanitizeUser(updatedUser),
       });

@@ -16,7 +16,11 @@ export const SocketProvider = ({ children }) => {
   useEffect(() => {
     if (isAuthenticated && userId) {
       const token = getAccessToken();
-      const newSocket = io(import.meta.env.VITE_SERVER_URL || 'http://localhost:4000', {
+      const apiUrl = import.meta.env.VITE_API_URL || '';
+      const serverUrl =
+        import.meta.env.VITE_SERVER_URL ||
+        (apiUrl ? apiUrl.replace(/\/api\/?$/, '') : 'http://localhost:4000');
+      const newSocket = io(serverUrl, {
         withCredentials: true,
         ...(token ? { auth: { token } } : {}),
       });

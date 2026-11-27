@@ -39,7 +39,11 @@
       "serverUrl": "https://nexus-2xsa.onrender.com",
       "localServerUrl": "http://10.226.235.50:4000",
       "turnstileSiteKey": "0x4AAAAAAGVQFeiNXzXSirQM",
-      "appVariant": "admin"
-    }
+      "appVariant": "admin",
+      "eas": {
+        "projectId": "ab7792bc-df3f-4d1e-a9ff-fcc9f96587bf"
+      }
+    },
+    "owner": "lakshayb059"
   }
 }
