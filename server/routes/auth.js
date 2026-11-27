@@ -1,7 +1,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const { prisma } = require('../shared/db');
-const { verify } = require('../shared/authMiddleware');
+const { verify, extractBearerToken, loadAuthenticatedUser } = require('../shared/authMiddleware');
 const {
   validatePasswordStrength,
   hashPassword,
@@ -14,6 +14,7 @@ const {
   generateOpaqueToken,
   hashToken,
   signAccessToken,
+  verifyAccessToken,
   setCsrfCookie,
   setAuthCookies,
   clearAuthCookies,
@@ -300,7 +301,10 @@ function createAuthRouter() {
 
       const user = await prisma.user.findFirst({
         where: {
-          OR: [{ email: identifier }, { username: identifier }],
+          OR: [
+            { email: { equals: identifier, mode: 'insensitive' } },
+            { username: { equals: identifier, mode: 'insensitive' } },
+          ],
         },
         select: {
           id: true,
@@ -521,6 +525,42 @@ function createAuthRouter() {
     }
   });
 
+  // GET /api/auth/session - non-failing session bootstrap for web UI (avoids noisy 401 console errors on /login)
+  router.get('/session', async (req, res) => {
+    const existingCsrf = req.cookies?.[CSRF_COOKIE];
+    const csrfToken = (typeof existingCsrf === 'string' && existingCsrf.length >= 16)
+      ? existingCsrf
+      : generateOpaqueToken(24);
+    if (csrfToken !== existingCsrf) {
+      setCsrfCookie(res, csrfToken);
+    }
+
+    const { token, source } = extractBearerToken(req);
+    if (token) {
+      try {
+        const decoded = verifyAccessToken(token);
+        const { user, error } = await loadAuthenticatedUser(decoded);
+        if (!error && user) {
+          const accessToken = source === 'cookie' ? signAccessToken(user) : token;
+          return res.json({
+            authenticated: true,
+            user: sanitizeUser(user),
+            csrfToken,
+            accessToken,
+          });
+        }
+      } catch {
+        // Fall through to refresh check
+      }
+    }
+
+    return res.json({
+      authenticated: false,
+      canRefresh: Boolean(req.cookies?.[REFRESH_COOKIE]),
+      csrfToken,
+    });
+  });
+
   // GET /api/auth/me
   router.get('/me', verify, async (req, res) => {
     const existingCsrf = req.cookies?.[CSRF_COOKIE];
@@ -613,7 +653,10 @@ function createAuthRouter() {
 
       const user = await prisma.user.findFirst({
         where: {
-          OR: [{ email: identifier }, { username: identifier }],
+          OR: [
+            { email: { equals: identifier, mode: 'insensitive' } },
+            { username: { equals: identifier, mode: 'insensitive' } },
+          ],
           isDeleted: false,
           active: true,
         },

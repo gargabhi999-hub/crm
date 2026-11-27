@@ -116,7 +116,7 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-async function refreshAccessToken() {
+export async function refreshAccessToken() {
   if (!refreshPromise) {
     refreshPromise = (async () => {
       const csrfToken = await ensureCsrfToken().catch(() => null);

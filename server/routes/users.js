@@ -97,8 +97,8 @@ function createUsersRouter(io) {
       const existingUser = await prisma.user.findFirst({
         where: {
           OR: [
-            { username: normalizedUsername },
-            ...(normalizedEmail ? [{ email: normalizedEmail }] : []),
+            { username: { equals: normalizedUsername, mode: 'insensitive' } },
+            ...(normalizedEmail ? [{ email: { equals: normalizedEmail, mode: 'insensitive' } }] : []),
           ],
         },
         select: { id: true },

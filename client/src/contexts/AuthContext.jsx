@@ -1,5 +1,12 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import api, { setAccessToken, clearAccessToken, setCsrfToken, clearCsrfToken, setUnauthorizedHandler } from '../utils/api';
+import api, {
+  setAccessToken,
+  clearAccessToken,
+  setCsrfToken,
+  clearCsrfToken,
+  setUnauthorizedHandler,
+  refreshAccessToken,
+} from '../utils/api';
 
 const AuthContext = createContext();
 
@@ -74,11 +81,24 @@ export const AuthProvider = ({ children }) => {
     let cancelled = false;
     async function restoreSession() {
       try {
-        const res = await api.get('/auth/me');
-        if (!cancelled && res.data?.user) {
+        const res = await api.get('/auth/session');
+        if (!cancelled && res.data?.csrfToken) {
+          setCsrfToken(res.data.csrfToken);
+        }
+        if (!cancelled && res.data?.authenticated && res.data?.user) {
           if (res.data.accessToken) setAccessToken(res.data.accessToken);
-          if (res.data.csrfToken) setCsrfToken(res.data.csrfToken);
           setUser(res.data.user);
+        } else if (!cancelled && res.data?.canRefresh) {
+          const refreshed = await refreshAccessToken();
+          if (!cancelled && refreshed?.user) {
+            setUser(refreshed.user);
+          } else if (!cancelled) {
+            clearAccessToken();
+            setUser(null);
+          }
+        } else if (!cancelled) {
+          clearAccessToken();
+          setUser(null);
         }
       } catch {
         if (!cancelled) {

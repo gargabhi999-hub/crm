@@ -202,6 +202,8 @@ function sign(user) {
 
 module.exports = {
   sign,
+  extractBearerToken,
+  loadAuthenticatedUser,
   verify,
   csrfProtect,
   authorize,

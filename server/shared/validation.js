@@ -11,8 +11,8 @@ function normalizeEmail(input) {
 
 function normalizeIdentifier(input) {
   if (typeof input !== 'string') return null;
-  const normalized = input.trim().toLowerCase();
-  if (!normalized || normalized.length < 2 || normalized.length > 254 || /\s/.test(normalized)) {
+  const normalized = input.trim().replace(/\s+/g, ' ').toLowerCase();
+  if (!normalized || normalized.length < 2 || normalized.length > 254) {
     return null;
   }
   return normalized;

@@ -413,7 +413,12 @@ test('3-13. End-to-end auth security workflows: registration, login, bcrypt upgr
 
     let aliceCookies = { ...loginRes.cookies };
 
-    // D. Unauthenticated access to protected APIs is rejected
+    // D. Unauthenticated access to protected APIs is rejected; /auth/session stays non-erroring
+    const unauthSession = await requestJson(baseUrl, '/api/auth/session');
+    assert.equal(unauthSession.status, 200);
+    assert.equal(unauthSession.data.authenticated, false);
+    assert.ok(unauthSession.data.csrfToken);
+
     const unauthMe = await requestJson(baseUrl, '/api/auth/me');
     const unauthUsers = await requestJson(baseUrl, '/api/users');
     const unauthMail = await requestJson(baseUrl, '/api/mail/send', { method: 'POST', body: { to: 'a@b.com' } });
@@ -430,6 +435,12 @@ test('3-13. End-to-end auth security workflows: registration, login, bcrypt upgr
     assert.equal(meRes.data.csrfToken, aliceCookies.crm_csrf);
     assert.ok(meRes.data.accessToken);
     assert.equal(meRes.data.user.passwordHash, undefined);
+
+    const authSession = await requestJson(baseUrl, '/api/auth/session', { cookies: aliceCookies });
+    assert.equal(authSession.status, 200);
+    assert.equal(authSession.data.authenticated, true);
+    assert.equal(authSession.data.user.email, 'alice@example.com');
+    assert.ok(authSession.data.accessToken);
 
     const forbiddenUsers = await requestJson(baseUrl, '/api/users', { cookies: aliceCookies });
     assert.equal(forbiddenUsers.status, 403);
@@ -712,7 +723,37 @@ test('3-13. End-to-end auth security workflows: registration, login, bcrypt upgr
       });
       assert.equal(goodTurnstile.status, 200);
       assert.ok(goodTurnstile.data.refreshToken, 'Mobile clients must receive refreshToken in JSON');
+      assert.equal(goodTurnstile.cookies.crm_access_token, undefined, 'Mobile clients should not receive browser auth cookies');
       assert.match(goodTurnstile.headers.get('content-security-policy') || '', /challenges\.cloudflare\.com/);
+
+      // Spaced and mixed-case legacy usernames (e.g. "Pooja Negi" / "pooja negi") must authenticate case-insensitively
+      const spacedHash = await passwordService.hashPassword('Pooja@123');
+      mockPrisma.__store.users.push({
+        id: 'spaced-user-1',
+        username: 'Pooja Negi',
+        email: null,
+        passwordHash: spacedHash,
+        name: 'Pooja Negi',
+        role: 'agent',
+        tlId: null,
+        adminId: null,
+        receiverMail: null,
+        active: true,
+        isDeleted: false,
+        tokenVersion: 0,
+        failedLoginAttempts: 0,
+        lockedUntil: null,
+        passwordChangedAt: new Date(),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+      const spacedLogin = await requestJson(baseUrl, '/api/auth/login', {
+        method: 'POST',
+        headers: { 'CF-Connecting-IP': '198.51.100.42' },
+        body: { identifier: 'pooja negi', password: 'Pooja@123', turnstileToken: 'valid-cf-token' },
+      });
+      assert.equal(spacedLogin.status, 200);
+      assert.equal(spacedLogin.data.user.username, 'Pooja Negi');
 
       const mobileRefresh = await requestJson(baseUrl, '/api/auth/refresh', {
         method: 'POST',
