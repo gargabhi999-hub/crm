@@ -1,682 +1,709 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import NexusLogoMark from '../components/NexusLogoMark';
+import TurnstileWidget from '../components/TurnstileWidget';
 import {
   ShieldAlert,
-  LogIn,
+  ShieldCheck,
+  CheckCircle2,
   Eye,
   EyeOff,
-  User,
+  Mail,
   Lock,
-  Settings,
-  Brain,
-  Phone,
-  CreditCard
+  User,
+  ArrowLeft,
 } from 'lucide-react';
 
 const Login = () => {
+  const [mode, setMode] = useState('login'); // 'login' | 'register' | 'forgot'
+  const [name, setName] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState('');
+  const [turnstileRequired, setTurnstileRequired] = useState(false);
+  const [turnstileResetSignal, setTurnstileResetSignal] = useState(0);
   const [error, setError] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [activeStep, setActiveStep] = useState(null);
 
-  const { login } = useAuth();
+  const { login, register, forgotPassword } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
-  const containerRef = useRef(null);
-  const shineRef = useRef(null);
+  const displayHost =
+    typeof window !== 'undefined' && window.location.hostname && window.location.hostname !== 'localhost'
+      ? window.location.hostname
+      : 'nexus.crm';
 
-
-
-  // 3D Card Hover Perspective & Lighting Sheen
-  const handleMouseMove = (e) => {
-    const container = containerRef.current;
-    const shine = shineRef.current;
-    if (!container) return;
-
-    const rect = container.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-
-    const xc = rect.width / 2;
-    const yc = rect.height / 2;
-
-    const rotateX = -(y - yc) / 32;
-    const rotateY = (x - xc) / 32;
-
-    container.style.transform = `perspective(1200px) rotateX(${rotateX}deg) rotateY(${rotateY}deg)`;
-
-    if (shine) {
-      const shineX = (x / rect.width) * 100;
-      const shineY = (y / rect.height) * 100;
-      shine.style.background = `radial-gradient(circle at ${shineX}% ${shineY}%, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0) 70%)`;
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (params.get('expired') === 'true') {
+      setError('Your session expired. Please sign in again.');
     }
+  }, [location.search]);
+
+  const resetTurnstile = () => {
+    setTurnstileToken('');
+    setTurnstileResetSignal((n) => n + 1);
   };
 
-  const handleMouseLeave = () => {
-    const container = containerRef.current;
-    const shine = shineRef.current;
-    if (!container) return;
-
-    container.style.transform = `perspective(1200px) rotateX(0deg) rotateY(0deg)`;
-    if (shine) {
-      shine.style.background = 'transparent';
-    }
+  const switchMode = (nextMode) => {
+    setMode(nextMode);
+    setError('');
+    setSuccessMsg('');
+    setPassword('');
+    setConfirmPassword('');
+    setShowPass(false);
+    resetTurnstile();
   };
 
   const handleLogin = async (e) => {
     e.preventDefault();
     setError('');
-    setIsLoading(true);
-    if (!username || !password) {
-      setError('Please enter both username and password.');
-      setIsLoading(false);
+    setSuccessMsg('');
+
+    if (!username.trim() || !password) {
+      setError('Please enter both work email/username and password.');
       return;
     }
-    const result = await login(username, password);
+    if (turnstileRequired && !turnstileToken) {
+      setError('Please complete the Cloudflare Turnstile security check.');
+      return;
+    }
+
+    setIsLoading(true);
+    const result = await login(username.trim(), password, turnstileToken);
     if (result.success) {
-      navigate('/dashboard');
+      const targetPath = location.state?.from?.pathname || '/dashboard';
+      navigate(targetPath, { replace: true });
     } else {
       setError(result.error);
       setIsLoading(false);
+      resetTurnstile();
     }
   };
 
-  // Steps detailed configuration with clean relative label positioning
-  const steps = [
-    {
-      id: 0,
-      title: 'Lead Automation',
-      description: 'Capture, enrich, and instantly capture high-performance sales leads.',
-      icon: <Settings size={22} />,
-      x: 200, y: 60,
-      labelPos: 'pos-top',
-      color: '#60a5fa' // bright blue
-    },
-    {
-      id: 1,
-      title: 'AI',
-      description: 'Score opportunities, segment markets, and auto-route intelligently.',
-      icon: <Brain size={22} />,
-      x: 340, y: 200,
-      labelPos: 'pos-right',
-      color: '#818cf8' // vibrant indigo
-    },
-    {
-      id: 2,
-      title: 'Cloud telephony',
-      description: 'Integrated dialer, real-time callbacks, and call recording sync.',
-      icon: <Phone size={22} />,
-      x: 200, y: 340,
-      labelPos: 'pos-bottom',
-      color: '#38bdf8' // bright sky
-    },
-    {
-      id: 3,
-      title: 'Payments',
-      description: 'Track deals won, route commissions, and close revenue targets.',
-      icon: <CreditCard size={22} />,
-      x: 60, y: 200,
-      labelPos: 'pos-left',
-      color: '#34d399' // emerald green
+  const handleRegister = async (e) => {
+    e.preventDefault();
+    setError('');
+    setSuccessMsg('');
+
+    if (!name.trim() || !username.trim() || !password) {
+      setError('Please fill in all required registration fields.');
+      return;
     }
-  ];
+    if (password !== confirmPassword) {
+      setError('Passwords do not match.');
+      return;
+    }
+    if (turnstileRequired && !turnstileToken) {
+      setError('Please complete the Cloudflare Turnstile security check.');
+      return;
+    }
+
+    setIsLoading(true);
+    const result = await register({
+      name: name.trim(),
+      email: username.trim(),
+      password,
+      turnstileToken,
+    });
+    setIsLoading(false);
+    resetTurnstile();
+
+    if (result.success) {
+      setMode('login');
+      setPassword('');
+      setConfirmPassword('');
+      setSuccessMsg(result.message || 'Account registered successfully. Please sign in.');
+    } else {
+      setError(result.error);
+    }
+  };
+
+  const handleForgotPassword = async (e) => {
+    e.preventDefault();
+    setError('');
+    setSuccessMsg('');
+
+    if (!username.trim()) {
+      setError('Please enter your registered email address.');
+      return;
+    }
+    if (turnstileRequired && !turnstileToken) {
+      setError('Please complete the Cloudflare Turnstile security check.');
+      return;
+    }
+
+    setIsLoading(true);
+    const result = await forgotPassword(username.trim(), turnstileToken);
+    setIsLoading(false);
+    resetTurnstile();
+
+    if (result.success) {
+      setSuccessMsg(result.message);
+    } else {
+      setError(result.error);
+    }
+  };
+
+  const badgeLabel =
+    mode === 'login' ? 'SIGN IN' : mode === 'register' ? 'REGISTER' : 'RECOVERY';
+
+  const headingTitle =
+    mode === 'login'
+      ? 'Sign In to Workspace'
+      : mode === 'register'
+      ? 'Create Workspace Account'
+      : 'Reset Workspace Password';
+
+  const headingSubtitle =
+    mode === 'login'
+      ? 'Enter your authorized enterprise credentials to access your session.'
+      : mode === 'register'
+      ? 'Register a new Nexus CRM account secured with Argon2id encryption.'
+      : 'Enter your work email and we will send a single-use password reset link.';
+
+  const turnstileAction =
+    mode === 'login' ? 'login' : mode === 'register' ? 'register' : 'forgot_password';
 
   return (
-    <div className="login-page-wrapper">
-      {/* Dynamic base layout container with 3D mouse tracking */}
-      <div
-        className="login-master-container"
-        ref={containerRef}
-        onMouseMove={handleMouseMove}
-        onMouseLeave={handleMouseLeave}
-      >
-        <div className="card-shine" ref={shineRef} />
-
-        {/* LEFT PANEL: Circular Workflow Orbit */}
-        <div className="workflow-orbit-panel">
-          <div className="orbit-diagram-container">
-
-            {/* SVG Orbit Path */}
-            <svg viewBox="0 0 400 400" className="orbit-svg-element">
-              {/* Core Orbit Line */}
-              <circle
-                cx="200" cy="200" r="140"
-                className="orbit-main-circle"
-              />
-            </svg>
-
-            {/* Glowing Orbit Dot using CSS keyframes along SVG track */}
-            <div className="orbit-traveler-glow" />
-
-            {/* Center Brand Text Hub - aligned explicitly at 50%/50% */}
-            <div className="orbit-center-hub">
-              <span className="hub-text-brand">Nexus</span>
-              <span className="hub-text-sub"></span>
-              <div className="hub-ping-ring" />
-            </div>
-
-            {/* Interactive Workflow Orbit Nodes */}
-            {steps.map((step) => {
-              const isActive = activeStep === step.id;
-              return (
-                <div
-                  key={step.id}
-                  className={`orbit-node-item ${isActive ? 'active' : ''}`}
-                  style={{
-                    left: `${step.x}px`,
-                    top: `${step.y}px`,
-                    '--node-accent': step.color
-                  }}
-                  onMouseEnter={() => setActiveStep(step.id)}
-                  onMouseLeave={() => setActiveStep(null)}
-                >
-                  <div className="node-icon-inner">
-                    {step.icon}
-                  </div>
-                  {/* Node radar glow rings */}
-                  <div className="node-radar" style={{ borderColor: step.color }} />
-
-                  {/* Integrated aligned label - aligned perfectly next to circles */}
-                  <div className={`orbit-node-label-child ${step.labelPos} ${isActive ? 'active' : ''}`}>
-                    {step.title}
-                  </div>
-                </div>
-              );
-            })}
-
-            {/* Dynamic Step description panel - fades in when steps are hovered */}
-            <div className={`step-description-overlay ${activeStep !== null ? 'visible' : ''}`}>
-              {activeStep !== null && (
-                <>
-                  <h4>{steps[activeStep].title}</h4>
-                  <p>{steps[activeStep].description}</p>
-                </>
-              )}
-            </div>
+    <div className="nexus-auth-shell">
+      <div className="nexus-auth-grid">
+        {/* LEFT COLUMN: Crisp White Enterprise Auth Card */}
+        <section className="nexus-auth-card" aria-label="Authentication form">
+          <div className="nexus-card-top">
+            <span className="nexus-mode-pill">{badgeLabel}</span>
+            <span className="nexus-workspace-label">Workspace Access</span>
           </div>
-        </div>
 
-        {/* RIGHT PANEL: Form inputs & login controls */}
-        <div className="login-form-panel">
-          <div className="login-form-wrapper">
+          <h1 className="nexus-card-title">{headingTitle}</h1>
+          <p className="nexus-card-subtitle">{headingSubtitle}</p>
 
+          {error && (
+            <div className="nexus-alert nexus-alert-error" role="alert">
+              <ShieldAlert size={16} style={{ flexShrink: 0 }} />
+              <span>{error}</span>
+            </div>
+          )}
 
-            {/* Header section matching ProLeads layout */}
-            <h2 className="login-welcome-header">
-              Welcome To <span className="brand-highlight">Nexus</span><span className="brand-accent"></span>
-            </h2>
-            <p className="login-welcome-tagline">Sign in to sync your high-performance workflow</p>
+          {successMsg && (
+            <div className="nexus-alert nexus-alert-success" role="status">
+              <CheckCircle2 size={16} style={{ flexShrink: 0 }} />
+              <span>{successMsg}</span>
+            </div>
+          )}
 
-            {error && (
-              <div className="error-alert-bar animate-scale-up">
-                <ShieldAlert size={16} className="error-alert-icon" />
-                <span>{error}</span>
+          {mode === 'login' && (
+            <form onSubmit={handleLogin} className="nexus-auth-form">
+              <div className="nexus-field-block">
+                <div className="nexus-label-row">
+                  <label htmlFor="login-username">WORK EMAIL</label>
+                </div>
+                <div className="nexus-input-wrap">
+                  <Mail size={16} className="nexus-input-icon" />
+                  <input
+                    id="login-username"
+                    type="text"
+                    className="nexus-input"
+                    placeholder="name@nexus.crm"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    disabled={isLoading}
+                    autoComplete="username"
+                    required
+                  />
+                </div>
               </div>
-            )}
 
-            <form onSubmit={handleLogin} className="login-modern-form">
-              {/* Username underline field */}
-              <div className="underline-input-group">
-                <input
-                  id="login-username"
-                  type="text"
-                  className="underline-field"
-                  placeholder="User Name"
-                  value={username}
-                  onChange={e => setUsername(e.target.value)}
-                  disabled={isLoading}
-                  autoComplete="username"
-                  required
+              <div className="nexus-field-block">
+                <div className="nexus-label-row">
+                  <label htmlFor="login-password">PASSWORD</label>
+                  <button
+                    type="button"
+                    className="nexus-inline-link"
+                    onClick={() => switchMode('forgot')}
+                  >
+                    Forgot password?
+                  </button>
+                </div>
+                <div className="nexus-input-wrap">
+                  <Lock size={16} className="nexus-input-icon" />
+                  <input
+                    id="login-password"
+                    type={showPass ? 'text' : 'password'}
+                    className="nexus-input nexus-input-password"
+                    placeholder="••••••••"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    disabled={isLoading}
+                    autoComplete="current-password"
+                    required
+                  />
+                  <button
+                    type="button"
+                    className="nexus-eye-btn"
+                    onClick={() => setShowPass((p) => !p)}
+                    aria-label="Toggle password visibility"
+                  >
+                    {showPass ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+              </div>
+
+              <div className="nexus-turnstile-box">
+                <TurnstileWidget
+                  action={turnstileAction}
+                  resetSignal={turnstileResetSignal}
+                  onVerify={(tok) => setTurnstileToken(tok)}
+                  onExpire={() => setTurnstileToken('')}
+                  onError={() => setTurnstileToken('')}
+                  onConfigLoaded={({ enabled }) => setTurnstileRequired(enabled)}
                 />
-                <User size={18} className="field-side-icon" />
-                <span className="field-glow-line" />
+                <div className="nexus-turnstile-caption">
+                  <ShieldCheck size={14} color="#059669" />
+                  <span>Protected by Cloudflare Turnstile Authentication</span>
+                </div>
               </div>
 
-              {/* Password underline field */}
-              <div className="underline-input-group">
-                <input
-                  id="login-password"
-                  type={showPass ? 'text' : 'password'}
-                  className="underline-field"
-                  placeholder="Password"
-                  value={password}
-                  onChange={e => setPassword(e.target.value)}
-                  disabled={isLoading}
-                  autoComplete="current-password"
-                  required
-                  style={{ paddingRight: '40px' }}
-                />
-                <button
-                  type="button"
-                  className="password-reveal-button"
-                  onClick={() => setShowPass(p => !p)}
-                  aria-label="Toggle password visibility"
-                >
-                  {showPass ? <EyeOff size={18} /> : <Eye size={18} />}
-                </button>
-                <span className="field-glow-line" />
-              </div>
-
-              {/* Login submit button */}
               <button
                 id="login-submit"
                 type="submit"
-                className="btn btn-primary premium-purple-button"
+                className="nexus-primary-cta"
                 disabled={isLoading}
               >
-                {isLoading ? (
-                  <span className="submit-spinner" />
-                ) : (
-                  <>
-                    <span>Login</span>
-                    <LogIn size={16} className="login-icon" />
-                  </>
-                )}
+                {isLoading ? <span className="nexus-spinner" /> : 'Sign In to Workspace'}
               </button>
 
-              {/* Forgot password */}
-              <a
-                href="#forgot-password"
-                className="forgot-password-link"
-                onClick={(e) => { e.preventDefault(); alert("Please contact your CRM administrator to reset your password."); }}
-              >
-                Forgot Password
-              </a>
+              <p className="nexus-switch-line">
+                Need a new account?{' '}
+                <button
+                  type="button"
+                  className="nexus-inline-link nexus-inline-strong"
+                  onClick={() => switchMode('register')}
+                >
+                  Register
+                </button>
+              </p>
             </form>
+          )}
+
+          {mode === 'register' && (
+            <form onSubmit={handleRegister} className="nexus-auth-form">
+              <div className="nexus-field-block">
+                <div className="nexus-label-row">
+                  <label htmlFor="register-name">FULL NAME</label>
+                </div>
+                <div className="nexus-input-wrap">
+                  <User size={16} className="nexus-input-icon" />
+                  <input
+                    id="register-name"
+                    type="text"
+                    className="nexus-input"
+                    placeholder="Alex Morgan"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    disabled={isLoading}
+                    autoComplete="name"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="nexus-field-block">
+                <div className="nexus-label-row">
+                  <label htmlFor="register-email">WORK EMAIL</label>
+                </div>
+                <div className="nexus-input-wrap">
+                  <Mail size={16} className="nexus-input-icon" />
+                  <input
+                    id="register-email"
+                    type="email"
+                    className="nexus-input"
+                    placeholder="name@nexus.crm"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    disabled={isLoading}
+                    autoComplete="email"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="nexus-field-block">
+                <div className="nexus-label-row">
+                  <label htmlFor="register-password">PASSWORD</label>
+                  <span className="nexus-hint-text">8+ chars, Aa1!</span>
+                </div>
+                <div className="nexus-input-wrap">
+                  <Lock size={16} className="nexus-input-icon" />
+                  <input
+                    id="register-password"
+                    type={showPass ? 'text' : 'password'}
+                    className="nexus-input nexus-input-password"
+                    placeholder="Create strong password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    disabled={isLoading}
+                    autoComplete="new-password"
+                    required
+                  />
+                  <button
+                    type="button"
+                    className="nexus-eye-btn"
+                    onClick={() => setShowPass((p) => !p)}
+                    aria-label="Toggle password visibility"
+                  >
+                    {showPass ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+              </div>
+
+              <div className="nexus-field-block">
+                <div className="nexus-label-row">
+                  <label htmlFor="register-confirm-password">CONFIRM PASSWORD</label>
+                </div>
+                <div className="nexus-input-wrap">
+                  <Lock size={16} className="nexus-input-icon" />
+                  <input
+                    id="register-confirm-password"
+                    type={showPass ? 'text' : 'password'}
+                    className="nexus-input"
+                    placeholder="Re-enter password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    disabled={isLoading}
+                    autoComplete="new-password"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="nexus-turnstile-box">
+                <TurnstileWidget
+                  action={turnstileAction}
+                  resetSignal={turnstileResetSignal}
+                  onVerify={(tok) => setTurnstileToken(tok)}
+                  onExpire={() => setTurnstileToken('')}
+                  onError={() => setTurnstileToken('')}
+                  onConfigLoaded={({ enabled }) => setTurnstileRequired(enabled)}
+                />
+                <div className="nexus-turnstile-caption">
+                  <ShieldCheck size={14} color="#059669" />
+                  <span>Protected by Cloudflare Turnstile Authentication</span>
+                </div>
+              </div>
+
+              <button
+                id="register-submit"
+                type="submit"
+                className="nexus-primary-cta"
+                disabled={isLoading}
+              >
+                {isLoading ? <span className="nexus-spinner" /> : 'Create Workspace Account'}
+              </button>
+
+              <p className="nexus-switch-line">
+                Already have an account?{' '}
+                <button
+                  type="button"
+                  className="nexus-inline-link nexus-inline-strong"
+                  onClick={() => switchMode('login')}
+                >
+                  Sign In
+                </button>
+              </p>
+            </form>
+          )}
+
+          {mode === 'forgot' && (
+            <form onSubmit={handleForgotPassword} className="nexus-auth-form">
+              <div className="nexus-field-block">
+                <div className="nexus-label-row">
+                  <label htmlFor="forgot-email">REGISTERED WORK EMAIL</label>
+                </div>
+                <div className="nexus-input-wrap">
+                  <Mail size={16} className="nexus-input-icon" />
+                  <input
+                    id="forgot-email"
+                    type="email"
+                    className="nexus-input"
+                    placeholder="name@nexus.crm"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    disabled={isLoading}
+                    autoComplete="email"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="nexus-turnstile-box">
+                <TurnstileWidget
+                  action={turnstileAction}
+                  resetSignal={turnstileResetSignal}
+                  onVerify={(tok) => setTurnstileToken(tok)}
+                  onExpire={() => setTurnstileToken('')}
+                  onError={() => setTurnstileToken('')}
+                  onConfigLoaded={({ enabled }) => setTurnstileRequired(enabled)}
+                />
+                <div className="nexus-turnstile-caption">
+                  <ShieldCheck size={14} color="#059669" />
+                  <span>Protected by Cloudflare Turnstile Authentication</span>
+                </div>
+              </div>
+
+              <button
+                id="forgot-submit"
+                type="submit"
+                className="nexus-primary-cta"
+                disabled={isLoading}
+              >
+                {isLoading ? <span className="nexus-spinner" /> : 'Send Reset Link'}
+              </button>
+
+              <p className="nexus-switch-line">
+                <button
+                  type="button"
+                  className="nexus-inline-link nexus-inline-strong"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}
+                  onClick={() => switchMode('login')}
+                >
+                  <ArrowLeft size={14} /> Back to Sign In
+                </button>
+              </p>
+            </form>
+          )}
+
+          <div className="nexus-card-footer">
+            <span className="nexus-footer-security">
+              <span className="nexus-green-dot" />
+              Argon2id Encrypted
+            </span>
+            <span className="nexus-footer-domain">{displayHost}</span>
           </div>
-        </div>
+        </section>
+
+        {/* RIGHT COLUMN: Centered Nexus Logo Mark & Stacked Brand Wordmark */}
+        <aside className="nexus-brand-showcase" aria-label="Nexus CRM brand">
+          <div className="nexus-brand-lockup">
+            <div className="nexus-logo-badge">
+              <NexusLogoMark size={178} />
+            </div>
+            <div className="nexus-wordmark">
+              <span className="nexus-wordmark-line">Nexus</span>
+              <span className="nexus-wordmark-line">
+                CRM<span className="nexus-wordmark-dot">.</span>
+              </span>
+            </div>
+          </div>
+        </aside>
       </div>
 
-      {/* Modern minimal clean footer */}
-      <footer className="login-footer-bar">
-        <span>© Copyrights 2026, Nexus - Spike Marketing Solutions. All rights reserved.</span>
-      </footer>
-
       <style>{`
-        /* ── Base Wrapper Styling ── */
-        .login-page-wrapper {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
+        .nexus-auth-shell {
           min-height: 100vh;
-          padding: 24px;
-          position: relative;
-          overflow: hidden;
           width: 100%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: clamp(20px, 4vw, 48px);
           font-family: 'Inter', system-ui, -apple-system, sans-serif;
-          background: #1d4ed8; /* Rich solid CRM primary blue */
+          background:
+            radial-gradient(circle at 82% 24%, rgba(34, 211, 238, 0.34) 0%, transparent 44%),
+            radial-gradient(circle at 72% 78%, rgba(124, 58, 237, 0.42) 0%, transparent 48%),
+            radial-gradient(circle at 18% 82%, rgba(29, 78, 216, 0.25) 0%, transparent 45%),
+            linear-gradient(125deg, #070d1f 0%, #0b224f 36%, #0c4d78 68%, #3c2f96 100%);
+          position: relative;
+          overflow-x: hidden;
         }
 
-        /* ── 3D Master Glass Container ── */
-        .login-master-container {
-          display: flex;
+        .nexus-auth-grid {
           width: 100%;
-          max-width: 960px;
-          min-height: 520px;
-          background: rgba(15, 23, 42, 0.42); /* Frosted slate dark-glass */
-          backdrop-filter: blur(35px) saturate(180%);
-          -webkit-backdrop-filter: blur(35px) saturate(180%);
-          border: 1px solid rgba(255, 255, 255, 0.12);
-          border-radius: 24px;
-          box-shadow: 0 35px 85px -15px rgba(0, 0, 0, 0.5),
-                      0 0 100px rgba(59, 130, 246, 0.1),
-                      inset 0 1px 1px rgba(255, 255, 255, 0.15);
-          position: relative;
+          max-width: 1080px;
+          display: grid;
+          grid-template-columns: minmax(340px, 420px) 1fr;
+          align-items: center;
+          gap: clamp(32px, 6vw, 96px);
           z-index: 2;
-          overflow: hidden;
-          transition: transform 0.15s ease-out;
-          transform-style: preserve-3d;
         }
 
-        .card-shine {
-          position: absolute;
-          inset: 0;
-          pointer-events: none;
-          z-index: 10;
-          mix-blend-mode: overlay;
-          border-radius: 24px;
-          transition: background 0.1s ease-out;
+        /* ── Crisp White Left Card ── */
+        .nexus-auth-card {
+          background: #ffffff;
+          border-radius: 22px;
+          padding: 30px 30px 20px;
+          box-shadow:
+            0 32px 75px -16px rgba(2, 6, 23, 0.58),
+            0 0 0 1px rgba(255, 255, 255, 0.14);
+          color: #0f172a;
         }
 
-        /* ── Left Circular Workflow Panel ── */
-        .workflow-orbit-panel {
-          flex: 1.1;
+        .nexus-card-top {
           display: flex;
           align-items: center;
-          justify-content: center;
-          background: rgba(255, 255, 255, 0.01);
-          border-right: 1px solid rgba(255, 255, 255, 0.06);
-          position: relative;
-          padding: 40px;
-          user-select: none;
-          min-height: 480px;
+          justify-content: space-between;
+          margin-bottom: 18px;
         }
 
-        .orbit-diagram-container {
-          position: relative;
-          width: 400px;
-          height: 400px;
-          display: flex;
+        .nexus-mode-pill {
+          display: inline-flex;
           align-items: center;
-          justify-content: center;
-        }
-
-        .orbit-svg-element {
-          position: absolute;
-          inset: 0;
-          width: 100%;
-          height: 100%;
-          z-index: 1;
-        }
-
-        .orbit-main-circle {
-          fill: none;
-          stroke: rgba(255, 255, 255, 0.1);
-          stroke-width: 1.5;
-        }
-
-        /* Pulsar traveler dot orbiting center */
-        .orbit-traveler-glow {
-          position: absolute;
-          left: 50%;
-          top: 50%;
-          width: 12px;
-          height: 12px;
-          border-radius: 50%;
-          background: #60a5fa;
-          box-shadow: 0 0 16px 5px rgba(96, 165, 250, 0.6);
-          z-index: 3;
-          margin-left: -6px;
-          margin-top: -6px;
-          animation: orbit-rotation 16s linear infinite;
-        }
-
-        @keyframes orbit-rotation {
-          from {
-            transform: rotate(0deg) translateX(140px) rotate(0deg);
-          }
-          to {
-            transform: rotate(360deg) translateX(140px) rotate(-360deg);
-          }
-        }
-
-        /* Center Hub - aligned exactly at 50% 50% */
-        .orbit-center-hub {
-          position: absolute;
-          left: 50%;
-          top: 50%;
-          transform: translate(-50%, -50%);
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          z-index: 5;
-          text-align: center;
-        }
-
-        .hub-text-brand {
-          font-size: 1.8rem;
-          font-weight: 900;
-          color: #ffffff;
-          letter-spacing: -0.02em;
-          line-height: 1;
-          text-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-        }
-
-        .hub-text-sub {
-          font-size: 1.05rem;
-          font-weight: 750;
-          color: #60a5fa;
-          letter-spacing: 0.14em;
-          margin-top: 2px;
-          line-height: 1;
-          text-shadow: 0 2px 8px rgba(96, 165, 250, 0.2);
-        }
-
-        .hub-ping-ring {
-          position: absolute;
-          inset: -20px;
-          border: 1px solid rgba(96, 165, 250, 0.18);
-          border-radius: 50%;
-          animation: hub-pulse 3.5s cubic-bezier(0.25, 0, 0.35, 1) infinite;
-        }
-
-        @keyframes hub-pulse {
-          0% { transform: scale(0.9); opacity: 0.9; }
-          100% { transform: scale(1.4); opacity: 0; }
-        }
-
-        /* Orbit Nodes absolute wrapper */
-        .orbit-node-item {
-          position: absolute;
-          width: 48px;
-          height: 48px;
-          border-radius: 50%;
-          background: rgba(255, 255, 255, 0.08);
-          border: 1px solid rgba(255, 255, 255, 0.16);
-          box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          z-index: 4;
-          transform: translate(-50%, -50%);
-          cursor: pointer;
-          transition: all 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
-          color: #cbd5e1;
-        }
-
-        .orbit-node-item:hover, .orbit-node-item.active {
-          color: #ffffff;
-          background: var(--node-accent);
-          border-color: var(--node-accent);
-          transform: translate(-50%, -50%) scale(1.14);
-          box-shadow: 0 8px 25px rgba(59, 130, 246, 0.4),
-                      inset 0 1px 1px rgba(255, 255, 255, 0.4);
-        }
-
-        .node-icon-inner {
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          transition: transform 0.3s;
-        }
-        .orbit-node-item:hover .node-icon-inner {
-          transform: rotate(15deg);
-        }
-
-        .node-radar {
-          position: absolute;
-          inset: -3px;
-          border-radius: 50%;
-          border: 1.5px solid transparent;
-          opacity: 0;
-          transition: all 0.3s;
-        }
-        .orbit-node-item:hover .node-radar, .orbit-node-item.active .node-radar {
-          opacity: 0.8;
-          animation: node-radar-pulse 2s infinite;
-        }
-
-        @keyframes node-radar-pulse {
-          0% { transform: scale(1); opacity: 0.8; }
-          100% { transform: scale(1.25); opacity: 0; }
-        }
-
-        /* Node labels positioned relative as children of the absolute nodes */
-        .orbit-node-label-child {
-          position: absolute;
-          font-size: 0.72rem;
-          font-weight: 750;
-          color: #94a3b8;
+          padding: 4px 10px;
+          border-radius: 999px;
+          background: linear-gradient(135deg, rgba(6, 182, 212, 0.12), rgba(79, 70, 229, 0.12));
+          color: #1d4ed8;
+          font-size: 0.68rem;
+          font-weight: 800;
+          letter-spacing: 0.08em;
           text-transform: uppercase;
-          letter-spacing: 0.05em;
-          white-space: nowrap;
-          pointer-events: none;
-          transition: all 0.3s ease;
-          opacity: 0.85;
-          z-index: 3;
         }
 
-        .orbit-node-label-child.active {
-          color: #ffffff;
-          font-weight: 850;
-          opacity: 1;
-          text-shadow: 0 0 8px rgba(255, 255, 255, 0.2);
+        .nexus-workspace-label {
+          font-size: 0.78rem;
+          font-weight: 500;
+          color: #64748b;
         }
 
-        .orbit-node-label-child.pos-top {
-          bottom: 100%;
-          left: 50%;
-          transform: translate(-50%, -12px);
-        }
-
-        .orbit-node-label-child.pos-right {
-          left: 100%;
-          top: 50%;
-          transform: translate(14px, -50%);
-        }
-
-        .orbit-node-label-child.pos-bottom {
-          top: 100%;
-          left: 50%;
-          transform: translate(-50%, 12px);
-        }
-
-        .orbit-node-label-child.pos-left {
-          right: 100%;
-          top: 50%;
-          transform: translate(-14px, -50%);
-        }
-
-        /* Tooltip description panel */
-        .step-description-overlay {
-          position: absolute;
-          bottom: 20px;
-          left: 50%;
-          transform: translateX(-50%);
-          width: 82%;
-          background: rgba(15, 23, 42, 0.85);
-          backdrop-filter: blur(12px);
-          border: 1px solid rgba(255, 255, 255, 0.1);
-          border-radius: 12px;
-          padding: 12px 16px;
-          box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
-          z-index: 6;
-          opacity: 0;
-          transition: opacity 0.35s ease, transform 0.35s ease;
-          pointer-events: none;
-          text-align: center;
-        }
-
-        .step-description-overlay.visible {
-          opacity: 1;
-          transform: translateX(-50%) translateY(-5px);
-        }
-
-        .step-description-overlay h4 {
-          font-size: 0.84rem;
+        .nexus-card-title {
+          font-size: 1.52rem;
           font-weight: 800;
-          color: #ffffff;
-          margin-bottom: 2px;
+          color: #0f172a;
+          letter-spacing: -0.025em;
+          margin: 0 0 6px;
+          line-height: 1.2;
         }
 
-        .step-description-overlay p {
-          font-size: 0.74rem;
-          color: #94a3b8;
+        .nexus-card-subtitle {
+          font-size: 0.82rem;
+          color: #64748b;
           line-height: 1.45;
-          margin: 0;
+          margin: 0 0 22px;
         }
 
-        /* ── Right Form Panel ── */
-        .login-form-panel {
-          flex: 0.9;
+        .nexus-alert {
           display: flex;
           align-items: center;
-          justify-content: center;
-          padding: 48px;
-          position: relative;
-          z-index: 2;
+          gap: 9px;
+          padding: 10px 12px;
+          border-radius: 10px;
+          font-size: 0.8rem;
+          font-weight: 600;
+          margin-bottom: 16px;
         }
 
-        .login-form-wrapper {
-          width: 100%;
-          max-width: 340px;
+        .nexus-alert-error {
+          background: #fef2f2;
+          border: 1px solid #fecaca;
+          color: #b91c1c;
         }
 
-        .login-welcome-header {
-          font-size: 1.55rem;
-          font-weight: 850;
-          color: #ffffff;
-          letter-spacing: -0.025em;
-          margin-bottom: 6px;
-          text-align: left;
-        }
-        
-        .brand-highlight {
-          color: #60a5fa;
-        }
-        .brand-accent {
-          color: #818cf8;
-          font-weight: 800;
+        .nexus-alert-success {
+          background: #ecfdf5;
+          border: 1px solid #a7f3d0;
+          color: #047857;
         }
 
-        .login-welcome-tagline {
-          font-size: 0.84rem;
-          color: #94a3b8;
-          margin-bottom: 36px;
-          text-align: left;
-        }
-
-        /* ── Underline Form Inputs ── */
-        .login-modern-form {
+        .nexus-auth-form {
           display: flex;
           flex-direction: column;
-          gap: 22px;
+          gap: 15px;
         }
 
-        .underline-input-group {
-          position: relative;
-          width: 100%;
-          border-bottom: 1.5px solid rgba(255, 255, 255, 0.15);
-          padding: 6px 0;
+        .nexus-field-block {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+        }
+
+        .nexus-label-row {
           display: flex;
           align-items: center;
-          transition: border-color 0.3s ease;
+          justify-content: space-between;
         }
 
-        .underline-field {
-          width: 100%;
+        .nexus-label-row label {
+          font-size: 0.68rem;
+          font-weight: 800;
+          color: #334155;
+          letter-spacing: 0.07em;
+          text-transform: uppercase;
+        }
+
+        .nexus-hint-text {
+          font-size: 0.7rem;
+          color: #64748b;
+          font-weight: 500;
+        }
+
+        .nexus-inline-link {
+          background: none;
           border: none;
-          background: transparent;
-          font-size: 0.94rem;
-          color: #ffffff;
-          padding: 4px 28px 4px 0;
+          padding: 0;
+          cursor: pointer;
           font-family: inherit;
+          font-size: 0.76rem;
+          font-weight: 600;
+          color: #2563eb;
+          transition: color 0.15s ease;
         }
 
-        .underline-field::placeholder {
-          color: #64748b;
+        .nexus-inline-link:hover {
+          color: #1d4ed8;
+          text-decoration: underline;
         }
 
-        .underline-field:focus {
-          outline: none;
+        .nexus-inline-strong {
+          font-weight: 700;
         }
 
-        .field-side-icon {
+        .nexus-input-wrap {
+          position: relative;
+          display: flex;
+          align-items: center;
+        }
+
+        .nexus-input-icon {
           position: absolute;
-          right: 0;
-          color: #64748b;
+          left: 13px;
+          color: #94a3b8;
           pointer-events: none;
-          transition: color 0.3s;
         }
 
-        .password-reveal-button {
+        .nexus-input {
+          width: 100%;
+          height: 44px;
+          background: #f8fafc;
+          border: 1.5px solid #e2e8f0;
+          border-radius: 10px;
+          padding: 0 14px 0 39px;
+          font-size: 0.88rem;
+          color: #0f172a;
+          font-family: inherit;
+          transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+        }
+
+        .nexus-input-password {
+          padding-right: 40px;
+        }
+
+        .nexus-input::placeholder {
+          color: #94a3b8;
+        }
+
+        .nexus-input:focus {
+          outline: none;
+          background: #ffffff;
+          border-color: #0284c7;
+          box-shadow: 0 0 0 3px rgba(6, 182, 212, 0.16);
+        }
+
+        .nexus-eye-btn {
           position: absolute;
-          right: 0;
+          right: 11px;
           background: none;
           border: none;
           color: #64748b;
@@ -685,227 +712,188 @@ const Login = () => {
           display: flex;
           align-items: center;
           justify-content: center;
-          transition: color 0.3s;
         }
 
-        .underline-input-group:focus-within {
-          border-color: #60a5fa;
+        .nexus-eye-btn:hover {
+          color: #0f172a;
         }
 
-        .underline-input-group:focus-within .field-side-icon,
-        .underline-input-group:focus-within .password-reveal-button {
-          color: #60a5fa;
+        /* ── Cloudflare Turnstile Container ── */
+        .nexus-turnstile-box {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 7px;
+          margin-top: 2px;
         }
 
-        /* Expanding focus line */
-        .field-glow-line {
-          position: absolute;
-          bottom: -1.5px;
-          left: 0;
-          width: 0;
-          height: 1.8px;
-          background: #60a5fa;
-          transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        .nexus-turnstile-caption {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          font-size: 0.72rem;
+          color: #475569;
+          font-weight: 500;
         }
 
-        .underline-input-group:focus-within .field-glow-line {
+        /* ── Primary Gradient CTA matching Nexus Logo ── */
+        .nexus-primary-cta {
           width: 100%;
-        }
-
-        /* ── Premium Purple/Indigo Button ── */
-        .premium-purple-button {
-          width: 100%;
-          height: 44px;
-          background: linear-gradient(135deg, #2563eb 0%, #4f46e5 100%);
-          color: #ffffff;
+          height: 45px;
           border: none;
-          border-radius: 6px;
-          font-size: 0.88rem;
+          border-radius: 10px;
+          background: linear-gradient(135deg, #0284c7 0%, #2563eb 52%, #6366f1 100%);
+          color: #ffffff;
+          font-family: inherit;
+          font-size: 0.9rem;
           font-weight: 700;
           cursor: pointer;
           display: flex;
           align-items: center;
           justify-content: center;
-          gap: 8px;
-          margin-top: 14px;
-          box-shadow: 0 4px 16px rgba(59, 130, 246, 0.25);
-          transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-          position: relative;
-          overflow: hidden;
+          box-shadow: 0 8px 22px rgba(37, 99, 235, 0.34);
+          transition: transform 0.16s ease, box-shadow 0.16s ease, filter 0.16s ease;
         }
 
-        .premium-purple-button:hover {
-          background: linear-gradient(135deg, #1d4ed8 0%, #4338ca 100%);
-          transform: translateY(-1.5px);
-          box-shadow: 0 8px 24px rgba(59, 130, 246, 0.4);
+        .nexus-primary-cta:hover:not(:disabled) {
+          transform: translateY(-1px);
+          box-shadow: 0 12px 28px rgba(6, 182, 212, 0.36);
+          filter: brightness(1.04);
         }
 
-        .premium-purple-button:active {
-          transform: translateY(0);
-          box-shadow: 0 4px 10px rgba(59, 130, 246, 0.2);
+        .nexus-primary-cta:disabled {
+          opacity: 0.65;
+          cursor: not-allowed;
         }
 
-        .premium-purple-button::after {
-          content: '';
-          position: absolute;
-          top: 0;
-          left: -70%;
-          width: 45%;
-          height: 100%;
-          background: linear-gradient(
-            to right, 
-            rgba(255, 255, 255, 0) 0%, 
-            rgba(255, 255, 255, 0.28) 50%, 
-            rgba(255, 255, 255, 0) 100%
-          );
-          transform: skewX(-20deg);
-          transition: 0.8s;
-          pointer-events: none;
-        }
-
-        .premium-purple-button:hover::after {
-          left: 120%;
-          transition: all 0.75s ease-in-out;
-        }
-
-        .login-icon {
-          transition: transform 0.2s;
-        }
-        .premium-purple-button:hover .login-icon {
-          transform: translateX(3px);
-        }
-
-        .submit-spinner {
+        .nexus-spinner {
           width: 18px;
           height: 18px;
-          border: 2px solid rgba(255, 255, 255, 0.3);
+          border: 2.5px solid rgba(255, 255, 255, 0.35);
           border-top-color: #ffffff;
           border-radius: 50%;
-          display: inline-block;
-          animation: spin-spin 0.75s linear infinite;
+          animation: nexusSpin 0.75s linear infinite;
         }
 
-        /* ── Forgot Password ── */
-        .forgot-password-link {
-          text-align: center;
-          font-size: 0.82rem;
-          color: #64748b;
-          text-decoration: none;
-          font-weight: 600;
-          margin-top: 4px;
-          transition: color 0.2s;
-        }
-        .forgot-password-link:hover {
-          color: #60a5fa;
-        }
-
-        /* ── Error Toast ── */
-        .error-alert-bar {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          background: rgba(254, 242, 242, 0.1);
-          border: 1px solid rgba(239, 68, 68, 0.3);
-          color: #fca5a5;
-          padding: 10px 14px;
-          border-radius: 8px;
-          font-size: 0.82rem;
-          font-weight: 600;
-          margin-bottom: 22px;
-          backdrop-filter: blur(4px);
-        }
-
-        .error-alert-icon {
-          color: #ef4444;
-          flex-shrink: 0;
-        }
-
-        /* ── Clean Minimal Footer ── */
-        .login-footer-bar {
-          margin-top: 24px;
-          font-size: 0.7rem;
-          color: #64748b;
-          text-align: center;
-          z-index: 2;
-          font-weight: 550;
-        }
-
-        /* ── Animations ── */
-        @keyframes spin-spin {
+        @keyframes nexusSpin {
           to { transform: rotate(360deg); }
         }
 
-        @keyframes scaleUp {
-          from { opacity: 0; transform: scale(0.95); }
-          to { opacity: 1; transform: scale(1); }
+        .nexus-switch-line {
+          margin: 2px 0 0;
+          text-align: center;
+          font-size: 0.8rem;
+          color: #475569;
         }
 
-        @keyframes fadeUp {
-          from { opacity: 0; transform: translateY(12px); }
-          to { opacity: 1; transform: none; }
+        .nexus-card-footer {
+          margin-top: 20px;
+          padding-top: 14px;
+          border-top: 1px solid #f1f5f9;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          font-size: 0.72rem;
         }
 
-        .animate-scale-up {
-          animation: scaleUp 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+        .nexus-footer-security {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          color: #64748b;
+          font-weight: 500;
         }
 
-        .animate-fade-up {
-          animation: fadeUp 0.6s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+        .nexus-green-dot {
+          width: 7px;
+          height: 7px;
+          border-radius: 50%;
+          background: #10b981;
+          box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.16);
         }
 
-        /* ── Ultra-Responsive Layouts ── */
+        .nexus-footer-domain {
+          color: #2563eb;
+          font-weight: 600;
+        }
+
+        /* ── Right Column: Nexus Logo + Stacked Wordmark ── */
+        .nexus-brand-showcase {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          user-select: none;
+        }
+
+        .nexus-brand-lockup {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          text-align: center;
+        }
+
+        .nexus-logo-badge {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          margin-bottom: 14px;
+        }
+
+        .nexus-logo-badge img {
+          width: clamp(120px, 14vw, 178px) !important;
+          height: clamp(120px, 14vw, 178px) !important;
+        }
+
+        .nexus-wordmark {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          line-height: 1.02;
+        }
+
+        .nexus-wordmark-line {
+          font-size: clamp(3.6rem, 6vw, 5.15rem);
+          font-weight: 800;
+          color: #ffffff;
+          letter-spacing: -0.03em;
+          text-shadow: 0 6px 28px rgba(2, 6, 23, 0.32);
+        }
+
+        .nexus-wordmark-dot {
+          background: linear-gradient(135deg, #22d3ee, #818cf8);
+          -webkit-background-clip: text;
+          -webkit-text-fill-color: transparent;
+        }
+
         @media (max-width: 900px) {
-          .login-page-wrapper {
-            padding: 16px;
+          .nexus-auth-grid {
+            grid-template-columns: 1fr;
+            max-width: 440px;
+            gap: 28px;
           }
 
-          .login-master-container {
-            flex-direction: column;
-            max-width: 480px;
-            min-height: auto;
-            margin: 20px auto;
+          .nexus-brand-showcase {
+            order: -1;
           }
 
-          .workflow-orbit-panel {
-            border-right: none;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-            padding: 20px;
-            min-height: auto;
+          .nexus-logo-badge {
+            margin-bottom: 10px;
           }
 
-          .orbit-diagram-container {
-            transform: scale(0.8);
-            margin: -25px 0;
+          .nexus-logo-badge img {
+            width: 118px !important;
+            height: 118px !important;
           }
 
-          .login-form-panel {
-            padding: 32px 24px;
-            width: 100%;
+          .nexus-wordmark-line {
+            font-size: 2.85rem;
           }
         }
 
-        @media (max-width: 520px) {
-          .login-page-wrapper {
-            padding: 8px;
-          }
-
-          .login-master-container {
-            width: 100%;
-            margin: 10px 0;
+        @media (max-width: 480px) {
+          .nexus-auth-card {
+            padding: 24px 20px 18px;
             border-radius: 18px;
-          }
-
-          .orbit-diagram-container {
-            transform: scale(0.68);
-            margin: -55px 0;
-          }
-
-          .login-welcome-header {
-            font-size: 1.35rem;
-          }
-
-          .login-welcome-tagline {
-            margin-bottom: 24px;
           }
         }
       `}</style>

@@ -6,12 +6,14 @@
   "scripts": {
     "install:all": "npm install && cd client && npm install",
     "start": "node --max-old-space-size=448 server/server.js",
-    "postinstall": "prisma generate --schema=server/prisma/schema.prisma"
+    "postinstall": "prisma generate --schema=server/prisma/schema.prisma",
+    "test": "node --test tests/auth.security.test.js"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.8.0",
     "@prisma/client": "^7.8.0",
     "@socket.io/redis-adapter": "^8.2.1",
+    "argon2": "^0.45.2",
     "axios": "^1.6.0",
     "bcryptjs": "^2.4.3",
     "cookie-parser": "^1.4.6",

@@ -1,53 +1,130 @@
 import axios from 'axios';
 
+const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
+
+// Keep short-lived access token strictly in memory — never in localStorage/sessionStorage
+let inMemoryAccessToken = null;
+let unauthorizedHandler = null;
+let refreshPromise = null;
+
+export function setAccessToken(token) {
+  inMemoryAccessToken = token || null;
+}
+
+export function getAccessToken() {
+  return inMemoryAccessToken;
+}
+
+export function clearAccessToken() {
+  inMemoryAccessToken = null;
+}
+
+export function setUnauthorizedHandler(handler) {
+  unauthorizedHandler = handler;
+}
+
+function getCookieValue(name) {
+  if (typeof document === 'undefined') return null;
+  const match = document.cookie.match(new RegExp(`(?:^|; )${name.replace(/([.$?*|{}()[\]\\/+^])/g, '\\$1')}=([^;]*)`));
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:4000/api',
+  baseURL: BASE_URL,
+  withCredentials: true,
 });
 
-// Add a request interceptor to include the auth token
+const PUBLIC_AUTH_PATHS = [
+  '/auth/login',
+  '/auth/register',
+  '/auth/refresh',
+  '/auth/forgot-password',
+  '/auth/reset-password',
+];
+
+function isPublicAuthRequest(url = '') {
+  return PUBLIC_AUTH_PATHS.some((path) => url.includes(path));
+}
+
+// Attach in-memory short-lived access token and double-submit CSRF header
 api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('crm_token');
-    if (token) {
-      config.headers['Authorization'] = `Bearer ${token}`;
+    if (inMemoryAccessToken) {
+      config.headers['Authorization'] = `Bearer ${inMemoryAccessToken}`;
     }
+
+    const method = (config.method || 'get').toUpperCase();
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(method)) {
+      const csrfToken = getCookieValue('crm_csrf');
+      if (csrfToken) {
+        config.headers['X-CSRF-Token'] = csrfToken;
+      }
+    }
+
     return config;
   },
   (error) => Promise.reject(error)
 );
 
-// Add a response interceptor to handle auth errors globally and auto-retry 502 errors due to Render cold starts
+async function refreshAccessToken() {
+  if (!refreshPromise) {
+    const csrfToken = getCookieValue('crm_csrf');
+    refreshPromise = axios
+      .post(
+        `${BASE_URL}/auth/refresh`,
+        {},
+        {
+          withCredentials: true,
+          headers: csrfToken ? { 'X-CSRF-Token': csrfToken } : {},
+        }
+      )
+      .then((res) => {
+        const nextToken = res.data?.accessToken || null;
+        setAccessToken(nextToken);
+        return res.data;
+      })
+      .finally(() => {
+        refreshPromise = null;
+      });
+  }
+  return refreshPromise;
+}
+
+// Response interceptor: Render cold-start 502 retry + automatic 401 refresh token rotation
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const { config, response } = error;
-    
-    // Check if the error is a 502 Bad Gateway and we haven't reached max retries yet
-    if (response && response.status === 502) {
+
+    if (response && response.status === 502 && config) {
       config.__retryCount = config.__retryCount || 0;
       const maxRetries = 3;
-      const retryDelay = 4000; // 4 seconds delay between retries
-      
+      const retryDelay = 4000;
+
       if (config.__retryCount < maxRetries) {
         config.__retryCount += 1;
-        console.warn(`⚠️ [Render Cold Start (502)] detected. Retrying request (${config.__retryCount}/${maxRetries}) in ${retryDelay / 1000}s...`, config.url);
-        
-        // Wait for the delay duration
+        console.warn(`⚠️ [Render Cold Start (502)] detected. Retrying request (${config.__retryCount}/${maxRetries})...`, config.url);
         await new Promise((resolve) => setTimeout(resolve, retryDelay));
-        
-        // Retry the request with the same configuration
         return api(config);
       }
     }
 
-    if (response && response.status === 401) {
-      if (config && !config.url.includes('/auth/login')) {
-        alert('Session expired. Please relogin to continue.');
-        localStorage.removeItem('crm_token');
-        localStorage.removeItem('crm_user');
-        window.location.href = '/login';
+    if (response && response.status === 401 && config && !config.__isRetryAfterRefresh && !isPublicAuthRequest(config.url)) {
+      config.__isRetryAfterRefresh = true;
+      try {
+        await refreshAccessToken();
+        if (inMemoryAccessToken) {
+          config.headers['Authorization'] = `Bearer ${inMemoryAccessToken}`;
+        }
+        return api(config);
+      } catch {
+        clearAccessToken();
+        if (unauthorizedHandler) {
+          unauthorizedHandler();
+        }
       }
     }
+
     return Promise.reject(error);
   }
 );

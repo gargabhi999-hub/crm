@@ -85,7 +85,7 @@ const Users = () => {
         tlId: u.tlId || '',
         receiverMail: u.receiverMail || '',
         smtpGmail: u.smtpGmail || '',
-        smtpPassword: u.smtpPassword || ''
+        smtpPassword: ''
       });
     } else {
       setEditingUser(null);
@@ -138,7 +138,7 @@ const Users = () => {
           active: formData.active,
           receiverMail: formData.role === 'admin' ? formData.receiverMail : undefined,
           smtpGmail: formData.role === 'admin' ? formData.smtpGmail : undefined,
-          smtpPassword: formData.role === 'admin' ? formData.smtpPassword : undefined
+          smtpPassword: (formData.role === 'admin' && formData.smtpPassword) ? formData.smtpPassword : undefined
         };
         if (formData.password) payload.password = formData.password;
         if (formData.role === 'agent') payload.tlId = formData.tlId;
@@ -430,14 +430,14 @@ const Users = () => {
                     />
                   </div>
                   <div className="input-group" style={{ marginBottom: 0 }}>
-                    <label>Gmail App Password *</label>
+                    <label>Gmail App Password {editingUser?.hasSmtpPassword ? '(blank = keep saved)' : '*'}</label>
                     <input 
                       type="password" 
                       className="input-field" 
                       value={formData.smtpPassword} 
                       onChange={e => setFormData(p => ({ ...p, smtpPassword: e.target.value }))} 
-                      required 
-                      placeholder="16-character Gmail app password"
+                      required={!editingUser || !editingUser.hasSmtpPassword} 
+                      placeholder={editingUser?.hasSmtpPassword ? 'Saved (leave blank to keep)' : '16-character Gmail app password'}
                     />
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'flex-start', marginTop: 6 }}>

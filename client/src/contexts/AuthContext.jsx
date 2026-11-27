@@ -1,5 +1,5 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import api from '../utils/api';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import api, { setAccessToken, clearAccessToken, setUnauthorizedHandler } from '../utils/api';
 
 const AuthContext = createContext();
 
@@ -10,43 +10,44 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [activeBreak, setActiveBreak] = useState(null);
 
-  const logout = React.useCallback(async () => {
-    if (localStorage.getItem('crm_token')) {
-      try {
-        await api.post('/agent-logs/logout');
-      } catch (e) {
-        console.error('Failed to log out session on server', e);
-      }
-    }
+  const clearLegacyClientStorage = useCallback(() => {
     localStorage.removeItem('crm_token');
     localStorage.removeItem('crm_user');
     localStorage.removeItem('crm_login_time');
-    setUser(null);
   }, []);
 
-  const checkSession = React.useCallback(() => {
-    const loginTime = localStorage.getItem('crm_login_time');
-    if (loginTime) {
-      const twoHours = 2 * 60 * 60 * 1000;
-      const elapsed = Date.now() - parseInt(loginTime);
-
-      if (elapsed >= twoHours) {
-        console.log('Session expired due to 2h limit');
-        logout().then(() => {
-          window.location.href = '/login?expired=true';
-        });
-      }
+  const logout = useCallback(async () => {
+    try {
+      await api.post('/auth/logout');
+    } catch {
+      // Ignore network errors during logout
     }
-  }, [logout]);
+    clearAccessToken();
+    clearLegacyClientStorage();
+    setUser(null);
+    setActiveBreak(null);
+  }, [clearLegacyClientStorage]);
 
-  const initSession = React.useCallback(async () => {
+  const logoutAll = useCallback(async () => {
+    try {
+      await api.post('/auth/logout-all');
+    } catch {
+      // Ignore network errors during logout-all
+    }
+    clearAccessToken();
+    clearLegacyClientStorage();
+    setUser(null);
+    setActiveBreak(null);
+  }, [clearLegacyClientStorage]);
+
+  const initSession = useCallback(async () => {
     try {
       const res = await api.post('/agent-logs/session-init');
       const session = res.data;
       if (session.activeBreakType && session.activeBreakStart) {
         setActiveBreak({
           type: session.activeBreakType,
-          startTime: session.activeBreakStart
+          startTime: session.activeBreakStart,
         });
       } else {
         setActiveBreak(null);
@@ -56,27 +57,45 @@ export const AuthProvider = ({ children }) => {
     }
   }, []);
 
+  // Restore session purely via server-verified HttpOnly cookie + refresh flow
   useEffect(() => {
-    // Initial load: Check if user is logged in
-    const token = localStorage.getItem('crm_token');
-    const storedUser = localStorage.getItem('crm_user');
+    clearLegacyClientStorage();
 
-    if (token && storedUser) {
+    setUnauthorizedHandler(() => {
+      setUser(null);
+      setActiveBreak(null);
+      if (window.location.pathname !== '/login' && window.location.pathname !== '/reset-password') {
+        window.location.href = '/login?expired=true';
+      }
+    });
+
+    let cancelled = false;
+    async function restoreSession() {
       try {
-        setUser(JSON.parse(storedUser));
-        checkSession();
-      } catch (e) {
-        console.error('Failed to parse stored user', e);
+        const res = await api.get('/auth/me');
+        if (!cancelled && res.data?.user) {
+          setUser(res.data.user);
+        }
+      } catch {
+        if (!cancelled) {
+          clearAccessToken();
+          setUser(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
     }
-    setLoading(false);
 
-    // Setup a background interval to check for expiration every 30 seconds
-    const interval = setInterval(checkSession, 30000);
-    return () => clearInterval(interval);
-  }, [checkSession]);
+    restoreSession();
 
-  // Handle active session initialization on login/user change
+    return () => {
+      cancelled = true;
+      setUnauthorizedHandler(null);
+    };
+  }, [clearLegacyClientStorage]);
+
   useEffect(() => {
     if (user && user.role === 'agent') {
       initSession();
@@ -85,17 +104,16 @@ export const AuthProvider = ({ children }) => {
     }
   }, [user, initSession]);
 
-  // Client-side 7 minutes inactivity logout and ping throttling
+  // Agent inactivity ping & auto-logout (10 minutes)
   useEffect(() => {
     if (!user || user.role !== 'agent') return;
 
     let inactivityTimer;
     let lastPing = Date.now();
-    const INACTIVITY_LIMIT = 10 * 60 * 1000; // 10 minutes
-    const PING_INTERVAL = 30 * 1000; // 30 seconds
+    const INACTIVITY_LIMIT = 10 * 60 * 1000;
+    const PING_INTERVAL = 30 * 1000;
 
     const resetInactivity = () => {
-      // If user is currently on break, do not count inactivity
       if (activeBreak) {
         if (inactivityTimer) clearTimeout(inactivityTimer);
         return;
@@ -103,7 +121,6 @@ export const AuthProvider = ({ children }) => {
 
       if (inactivityTimer) clearTimeout(inactivityTimer);
       inactivityTimer = setTimeout(() => {
-        console.log('Logging out due to inactivity...');
         logout().then(() => {
           window.location.href = '/login?expired=true';
         });
@@ -112,96 +129,142 @@ export const AuthProvider = ({ children }) => {
       const now = Date.now();
       if (now - lastPing > PING_INTERVAL) {
         lastPing = now;
-        api.post('/agent-logs/ping').catch(err => {
-          console.error('Failed to send activity ping', err);
-        });
+        api.post('/agent-logs/ping').catch(() => {});
       }
     };
 
     resetInactivity();
 
     const events = ['mousedown', 'keydown', 'scroll', 'click', 'touchstart'];
-    events.forEach(event => {
-      window.addEventListener(event, resetInactivity);
-    });
+    events.forEach((event) => window.addEventListener(event, resetInactivity));
 
     return () => {
       if (inactivityTimer) clearTimeout(inactivityTimer);
-      events.forEach(event => {
-        window.removeEventListener(event, resetInactivity);
-      });
+      events.forEach((event) => window.removeEventListener(event, resetInactivity));
     };
   }, [user, activeBreak, logout]);
 
-  const login = async (username, password) => {
+  const login = async (identifier, password, turnstileToken = null) => {
     try {
-      const response = await api.post('/auth/login', { username, password });
-      
+      const response = await api.post('/auth/login', { identifier, password, turnstileToken });
       if (response.data.error) {
         return { success: false, error: response.data.error };
       }
 
-      const { token, user } = response.data;
-
-      localStorage.setItem('crm_token', token);
-      localStorage.setItem('crm_user', JSON.stringify(user));
-      localStorage.setItem('crm_login_time', Date.now().toString());
-
-      setUser(user);
+      const { accessToken, user: loggedInUser } = response.data;
+      setAccessToken(accessToken);
+      setUser(loggedInUser);
 
       // Background fetch for past-due alerts after login
-      api.get('/contacts/notifications').then(res => {
-        const pastDueAlerts = res.data;
-        if (pastDueAlerts && pastDueAlerts.length > 0) {
-          const existing = JSON.parse(localStorage.getItem(`notifications_${user._id}`) || '[]');
-          const newAlerts = pastDueAlerts.map((a, i) => ({
-            id: `pastdue_${Date.now()}_${i}`,
-            type: a.type,
-            title: a.title,
-            message: a.message,
-            time: new Date(),
-            path: a.path
-          }));
-          const merged = [...newAlerts, ...existing].slice(0, 20);
-          localStorage.setItem(`notifications_${user._id}`, JSON.stringify(merged));
-          // Emit a custom event so NotificationBell can refresh if needed
-          window.dispatchEvent(new CustomEvent('notifications_updated'));
-        }
-      }).catch(err => console.error('Failed to fetch background notifications', err));
+      api.get('/contacts/notifications')
+        .then((res) => {
+          const pastDueAlerts = res.data;
+          if (pastDueAlerts && pastDueAlerts.length > 0) {
+            const uid = loggedInUser._id || loggedInUser.id;
+            const existing = JSON.parse(localStorage.getItem(`notifications_${uid}`) || '[]');
+            const newAlerts = pastDueAlerts.map((a, i) => ({
+              id: `pastdue_${Date.now()}_${i}`,
+              type: a.type,
+              title: a.title,
+              message: a.message,
+              time: new Date(),
+              path: a.path,
+            }));
+            const merged = [...newAlerts, ...existing].slice(0, 20);
+            localStorage.setItem(`notifications_${uid}`, JSON.stringify(merged));
+            window.dispatchEvent(new CustomEvent('notifications_updated'));
+          }
+        })
+        .catch(() => {});
 
       return { success: true };
     } catch (error) {
-      console.error('❌ Login failure detail:', error);
-      let errorMessage = 'Login failed. Please check credentials.';
-      
+      let errorMessage = 'Invalid credentials.';
       if (error.response?.status === 502 || error.message === 'Network Error' || !error.response) {
-        errorMessage = '📡 Server is waking up from sleep (Render Free Tier cold start). Please wait 10-15 seconds and try again!';
+        errorMessage = '📡 Server is waking up from sleep. Please wait 10-15 seconds and try again!';
       } else if (error.response?.data?.error) {
         errorMessage = error.response.data.error;
       }
+      return { success: false, error: errorMessage };
+    }
+  };
 
+  const register = async ({ name, email, password, turnstileToken = null }) => {
+    try {
+      const res = await api.post('/auth/register', { name, email, password, turnstileToken });
+      return { success: true, message: res.data?.message || 'Registration successful.' };
+    } catch (error) {
       return {
         success: false,
-        error: errorMessage
+        error: error.response?.data?.error || 'Unable to register account.',
+      };
+    }
+  };
+
+  const forgotPassword = async (email, turnstileToken = null) => {
+    try {
+      const res = await api.post('/auth/forgot-password', { email, turnstileToken });
+      return {
+        success: true,
+        message: res.data?.message || 'If an account matching that email exists, a password reset link has been sent.',
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error.response?.data?.error || 'Unable to process password reset request.',
+      };
+    }
+  };
+
+  const resetPassword = async (token, newPassword, turnstileToken = null) => {
+    try {
+      const res = await api.post('/auth/reset-password', { token, newPassword, turnstileToken });
+      return { success: true, message: res.data?.message || 'Password reset successfully.' };
+    } catch (error) {
+      return {
+        success: false,
+        error: error.response?.data?.error || 'Invalid or expired password reset token.',
+      };
+    }
+  };
+
+  const changePassword = async (currentPassword, newPassword) => {
+    try {
+      const res = await api.post('/auth/change-password', { currentPassword, newPassword });
+      if (res.data?.accessToken) {
+        setAccessToken(res.data.accessToken);
+      }
+      if (res.data?.user) {
+        setUser(res.data.user);
+      }
+      return { success: true, message: res.data?.message || 'Password updated successfully.' };
+    } catch (error) {
+      return {
+        success: false,
+        error: error.response?.data?.error || 'Failed to update password.',
       };
     }
   };
 
   const updateUser = (updates) => {
-    const updatedUser = { ...user, ...updates };
-    setUser(updatedUser);
-    localStorage.setItem('crm_user', JSON.stringify(updatedUser));
+    setUser((prev) => (prev ? { ...prev, ...updates } : prev));
   };
 
   const value = {
     user,
+    loading,
     login,
+    register,
     logout,
+    logoutAll,
+    forgotPassword,
+    resetPassword,
+    changePassword,
     updateUser,
     isAuthenticated: !!user,
     activeBreak,
     setActiveBreak,
-    initSession
+    initSession,
   };
 
   return (

@@ -1,18 +1,20 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import ChangePasswordModal from './ChangePasswordModal';
 import {
   LayoutDashboard, Users, Upload, Database, Star, Calendar,
-  LogOut, PhoneCall, BarChart2, PhoneOff, Clock, X, Activity
+  LogOut, PhoneCall, BarChart2, PhoneOff, Clock, X, Activity, KeyRound
 } from 'lucide-react';
 
 const Sidebar = ({ isOpen, onClose }) => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const [changePassOpen, setChangePassOpen] = useState(false);
   const role = user?.role || 'agent';
 
-  const handleLogout = () => {
-    logout();
+  const handleLogout = async () => {
+    await logout();
     navigate('/login');
   };
 
@@ -104,8 +106,20 @@ const Sidebar = ({ isOpen, onClose }) => {
           })}
         </nav>
 
-        {/* Separate Logout Button */}
-        <div style={{ padding: '20px', borderTop: '1px solid #f3f4f6' }}>
+        {/* Change Password & Logout Buttons */}
+        <div style={{ padding: '16px 20px', borderTop: '1px solid #f3f4f6', display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <button
+            onClick={() => setChangePassOpen(true)}
+            style={{
+              width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              gap: 10, padding: '10px 12px', borderRadius: '8px', background: '#f3f4f6',
+              color: '#1f2937', border: '1px solid #e5e7eb', fontWeight: 600, cursor: 'pointer',
+              fontSize: '0.875rem'
+            }}
+          >
+            <KeyRound size={16} />
+            <span>Change Password</span>
+          </button>
           <button
             onClick={handleLogout}
             style={{
@@ -120,6 +134,7 @@ const Sidebar = ({ isOpen, onClose }) => {
           </button>
         </div>
       </aside>
+      <ChangePasswordModal isOpen={changePassOpen} onClose={() => setChangePassOpen(false)} />
 
       <style>{`
         .simple-nav-link:hover {

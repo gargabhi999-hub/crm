@@ -1,7 +1,8 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate, Outlet } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from './contexts/AuthContext';
 import Login from './pages/Login';
+import ResetPassword from './pages/ResetPassword';
 import Dashboard from './pages/Dashboard';
 import Users from './pages/Users';
 import Upload from './pages/Upload';
@@ -21,8 +22,15 @@ import ErrorBoundary from './components/ErrorBoundary';
 // Protect routes based on authentication
 const ProtectedRoute = ({ children }) => {
   const { isAuthenticated } = useAuth();
-  if (!isAuthenticated) return <Navigate to="/login" replace />;
+  const location = useLocation();
+  if (!isAuthenticated) return <Navigate to="/login" state={{ from: location }} replace />;
   return children ? children : <Outlet />;
+};
+
+const PublicAuthRoute = ({ children }) => {
+  const { isAuthenticated } = useAuth();
+  if (isAuthenticated) return <Navigate to="/dashboard" replace />;
+  return children;
 };
 
 function App() {
@@ -46,7 +54,8 @@ function App() {
     <ErrorBoundary>
       <Router>
         <Routes>
-          <Route path="/login" element={<Login />} />
+          <Route path="/login" element={<PublicAuthRoute><Login /></PublicAuthRoute>} />
+          <Route path="/reset-password" element={<ResetPassword />} />
           
           {/* Protected Routes wrapped in Layout */}
           <Route element={<ProtectedRoute />}>

@@ -1,6 +1,7 @@
 const Imap = require('imap');
 const { simpleParser } = require('mailparser');
 const { prisma } = require('./db');
+const { decryptSecret } = require('./passwordService');
 
 function stripQuotedText(text) {
   if (!text) return '';
@@ -27,9 +28,13 @@ function stripQuotedText(text) {
 
 async function processAdminInbox(admin) {
   return new Promise((resolve, reject) => {
+    const decryptedPass = decryptSecret(admin.smtpPassword);
+    if (!decryptedPass) {
+      return resolve();
+    }
     const imap = new Imap({
       user: admin.smtpGmail.trim(),
-      password: admin.smtpPassword.trim(),
+      password: decryptedPass.trim(),
       host: 'imap.gmail.com',
       port: 993,
       tls: true,

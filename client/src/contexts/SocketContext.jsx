@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { io } from 'socket.io-client';
 import { useAuth } from './AuthContext';
+import { getAccessToken } from '../utils/api';
 
 const SocketContext = createContext();
 
@@ -14,11 +15,10 @@ export const SocketProvider = ({ children }) => {
 
   useEffect(() => {
     if (isAuthenticated && userId) {
-      // Connect to socket when authenticated
+      const token = getAccessToken();
       const newSocket = io(import.meta.env.VITE_SERVER_URL || 'http://localhost:4000', {
-        auth: {
-          token: localStorage.getItem('crm_token')
-        }
+        withCredentials: true,
+        ...(token ? { auth: { token } } : {}),
       });
 
       newSocket.on('connect', () => {
@@ -31,7 +31,6 @@ export const SocketProvider = ({ children }) => {
         newSocket.disconnect();
       };
     } else if (socket) {
-      // Disconnect when logged out
       socket.disconnect();
       setSocket(null);
     }

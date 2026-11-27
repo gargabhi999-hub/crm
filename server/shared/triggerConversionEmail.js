@@ -1,5 +1,5 @@
 const { prisma } = require('./db');
-const axios = require('axios');
+const { sendMail } = require('./mailService');
 
 async function triggerConversionEmail(contactId, receiptImageBase64 = null) {
   try {
@@ -25,34 +25,26 @@ async function triggerConversionEmail(contactId, receiptImageBase64 = null) {
       return { success: false, reason: 'Admin has no receiver email configured' };
     }
 
-    let mailServiceUrl = process.env.MAIL_SERVICE_URL || 'http://localhost:3000/api/mail/send';
-    if (!mailServiceUrl.endsWith('/api/mail/send')) {
-      mailServiceUrl = `${mailServiceUrl.replace(/\/$/, '')}/api/mail/send`;
-    }
-
-    const amount        = contact.leadAmount || 0;
+    const amount = contact.leadAmount || 0;
     const transactionId = contact.transactionId || 'N/A';
-    const clientName    = contact.fields?.Name  || contact.fields?.name  || 'Client';
-    const agentName     = agentUser?.name || contact.agentName || 'Unknown Agent';
+    const clientName = contact.fields?.Name || contact.fields?.name || 'Client';
+    const agentName = agentUser?.name || contact.agentName || 'Unknown Agent';
 
-    // Format date strictly as DD-MM-YYYY
     const dateObj = contact.conversionDate ? new Date(contact.conversionDate) : new Date();
     const day = String(dateObj.getDate()).padStart(2, '0');
     const month = String(dateObj.getMonth() + 1).padStart(2, '0');
     const year = dateObj.getFullYear();
     const conversionDateFormatted = `${day}-${month}-${year}`;
 
-    // Handle attachments
-    let attachments = [];
+    const attachments = [];
     const hasScreenshot = !!receiptImageBase64;
-    
+
     if (hasScreenshot && typeof receiptImageBase64 === 'string') {
       const matches = receiptImageBase64.match(/^data:(.+);base64,(.+)$/);
       if (matches) {
         const contentType = matches[1];
         const base64Data = matches[2];
         const extension = contentType.split('/')[1] || 'png';
-        
         attachments.push({
           filename: `transaction_screenshot.${extension}`,
           content: base64Data,
@@ -94,8 +86,8 @@ async function triggerConversionEmail(contactId, receiptImageBase64 = null) {
         </table>
         
         <p style="margin-top: 25px; margin-bottom: 25px;">
-          ${hasScreenshot 
-            ? 'Transaction screenshot attached.' 
+          ${hasScreenshot
+            ? 'Transaction screenshot attached.'
             : 'Donor is not comfortable in sharing the screenshot however he confirmed that his above mentioned donation has been completed, Kindly check.'}
         </p>
         
@@ -109,7 +101,7 @@ async function triggerConversionEmail(contactId, receiptImageBase64 = null) {
       </div>
     `;
 
-    const response = await axios.post(mailServiceUrl, {
+    const response = await sendMail({
       to: admin.receiverMail,
       subject: `✅ New Conversion: ₹${amount.toLocaleString('en-IN')} — ${clientName} [Ref: ${contactId}]`,
       html,
@@ -119,7 +111,7 @@ async function triggerConversionEmail(contactId, receiptImageBase64 = null) {
     });
 
     console.log(`[Email Trigger] Mail sent successfully to ${admin.receiverMail} for contact ${contactId}`);
-    return { success: true, messageId: response.data?.messageId };
+    return { success: true, messageId: response?.messageId };
   } catch (error) {
     console.error(`[Email Trigger] Failed to send email for contact ${contactId}:`, error.message);
     return { success: false, reason: error.message };
